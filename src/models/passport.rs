@@ -25,15 +25,10 @@ derive_enum!(
                 ref_services: Vec<Uuid>,
             }
         }),
-        KeyPair(enum {
-            SSH {
-                public_key: String,
-            },
-            X509 {
-                public_key: String,
-                provider_ca: Uuid,
-            },
-        }),
+        KeyPair {
+            public_key: String,
+            provider_ca: Uuid,
+        },
         OAuth {
             token: String,
             expires_at: DateTime<Utc>,
@@ -50,15 +45,11 @@ derive_enum!(
                 length: u8,
                 counter: u64,
             },
-            EmailVerification {
-                email: String,
+            Verification {
+                session: Uuid,
                 expires_at: DateTime<Utc>,
                 value: String,
-            },
-            PhoneVerification {
-                phone: String,
-                expires_at: DateTime<Utc>,
-                value: String,
+                provider_entity: Uuid,
             },
         }),
         Captcha {
@@ -67,24 +58,11 @@ derive_enum!(
             expires_at: DateTime<Utc>,
             provider_captcha: Uuid,
         },
-        Biological (enum {
-            Fingerprint {
-                template: Uuid,
-                provider_ai: Uuid,
-            },
-            Face {
-                template: Uuid,
-                provider_ai: Uuid,
-            },
-            Iris {
-                template: Uuid,
-                provider_ai: Uuid,
-            },
-            Voice {
-                template: Uuid,
-                provider_ai: Uuid,
-            },
-        }),
+        Biological  {
+            session: Uuid,
+            template: Uuid,
+            provider_ai: Uuid,
+        },
         TemporaryWhitelist(enum {
             ClientSource(enum {
                 IPv4(Ipv4Addr),

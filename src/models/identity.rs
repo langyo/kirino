@@ -11,10 +11,10 @@ derive_enum!(
             id: Uuid,
             created_at: DateTime<Utc>,
         },
-        Normal {
+        Basic {
             id: Uuid,
         },
-        NormalWithExpiration {
+        Temporary {
             id: Uuid,
             expires_at: DateTime<Utc>,
         },

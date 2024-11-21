@@ -11,11 +11,11 @@ derive_enum!(
             token: String,
             expires_at: DateTime<Utc>,
         },
-        TimeLimited {
+        Basic {
             token: String,
             expires_at: DateTime<Utc>,
         },
-        PermanentForService {
+        Service {
             token: String,
             ref_user: Uuid,
         },
