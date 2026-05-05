@@ -482,10 +482,10 @@ pub trait SessionManager<S: Subject, P: Permission>: Send + Sync {
 
 ### Phase 6 — 会话管理（2 天）
 
-- [ ] 实现 `Session` 结构体
-- [ ] 实现 `SessionManager` trait + InMemory 实现
+- [x] 实现 `Session` 结构体
+- [x] 实现 `SessionManager` trait + InMemory 实现
 - [ ] 集成到 `AuthService`（login 时创建 session，logout 时销毁）
-- [ ] DSD 约束在会话激活时的检查
+- [x] DSD 约束在会话激活时的检查
 
 ---
 

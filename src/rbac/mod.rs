@@ -1,14 +1,17 @@
+pub mod audit;
 pub mod cache;
 pub mod compat;
 pub mod constraints;
 pub mod engine;
 pub mod hierarchy;
 pub mod identity_subject;
+pub mod session;
 pub mod store;
 pub mod subject;
 pub mod traits;
 
 pub mod prelude {
+    pub use crate::rbac::audit::{AuditEntry, AuditLogger, InMemoryAuditLogger};
     pub use crate::rbac::cache::{PermissionCache, TtlPermissionCache};
     pub use crate::rbac::constraints::{
         CardinalityConstraint, ConstraintStore, ConstraintValidator, DsdPolicy,
@@ -19,6 +22,7 @@ pub mod prelude {
         detect_cycle, resolve_role_chain, HierarchicalRole, HierarchyNode,
     };
     pub use crate::rbac::identity_subject::{Delegatable, IdentitySubject};
+    pub use crate::rbac::session::{InMemorySessionManager, Session, SessionManager};
     pub use crate::rbac::store::{
         InMemoryAssignmentStore, InMemoryRoleStore, SimpleRole, StaticPermissionRegistry,
         StaticRoleRegistry,
