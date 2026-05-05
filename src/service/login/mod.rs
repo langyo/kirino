@@ -1,12 +1,17 @@
+use std::sync::Arc;
+
 use anyhow::{anyhow, Result};
 use chrono::Utc;
 use uuid::Uuid;
 
 use crate::auth::credential::basic::JwtManager;
 use crate::auth::passport::static_password::{hash_password, verify_password};
-#[allow(deprecated)]
-use crate::rbac::compat::{RbacStore, Role};
 use crate::models::identity::Identity;
+use crate::rbac::engine::RbacEngine;
+use crate::rbac::store::memory::InMemoryAssignmentStore;
+use crate::rbac::store::registry::{SimpleRole, StaticPermissionRegistry, StaticRoleRegistry};
+use crate::rbac::subject::StringSubject;
+use crate::rbac::traits::{AssignmentStore, Permission, Role};
 
 #[derive(Debug, Clone)]
 pub struct UserRecord {
@@ -29,32 +34,49 @@ pub struct LoginResult {
     pub roles: Vec<String>,
 }
 
-pub struct AuthService<DB> {
+pub struct AuthService<DB, P, R, A>
+where
+    P: Permission,
+    R: Role<P>,
+    A: AssignmentStore<StringSubject, P>,
+{
     db: DB,
     jwt: JwtManager,
-    rbac: std::sync::Arc<tokio::sync::RwLock<RbacStore>>,
+    engine: Arc<RbacEngine<StringSubject, P, R, A>>,
+    first_user_role: String,
+    default_role: String,
 }
 
-impl<DB: UserDatabase> AuthService<DB> {
-    pub fn new(db: DB, jwt_secret: &str, jwt_expiration_hours: i64) -> Self {
+impl<DB, P, R, A> AuthService<DB, P, R, A>
+where
+    DB: UserDatabase,
+    P: Permission,
+    R: Role<P>,
+    A: AssignmentStore<StringSubject, P>,
+{
+    pub fn new(
+        db: DB,
+        jwt_secret: &str,
+        jwt_expiration_hours: i64,
+        engine: Arc<RbacEngine<StringSubject, P, R, A>>,
+        first_user_role: &str,
+        default_role: &str,
+    ) -> Self {
         Self {
             db,
             jwt: JwtManager::new(jwt_secret, jwt_expiration_hours),
-            rbac: std::sync::Arc::new(tokio::sync::RwLock::new(RbacStore::new())),
+            engine,
+            first_user_role: first_user_role.to_string(),
+            default_role: default_role.to_string(),
         }
-    }
-
-    pub fn with_rbac(mut self, rbac: std::sync::Arc<tokio::sync::RwLock<RbacStore>>) -> Self {
-        self.rbac = rbac;
-        self
-    }
-
-    pub fn rbac(&self) -> std::sync::Arc<tokio::sync::RwLock<RbacStore>> {
-        self.rbac.clone()
     }
 
     pub fn jwt_manager(&self) -> &JwtManager {
         &self.jwt
+    }
+
+    pub fn engine(&self) -> &Arc<RbacEngine<StringSubject, P, R, A>> {
+        &self.engine
     }
 
     pub async fn register(
@@ -93,16 +115,17 @@ impl<DB: UserDatabase> AuthService<DB> {
         self.db.create_user(&user).await?;
 
         let is_first = self.db.count_users().await? <= 1;
-        let default_role = if is_first {
-            Role::Admin
+        let role_name = if is_first {
+            &self.first_user_role
         } else {
-            Role::Viewer
+            &self.default_role
         };
 
-        {
-            let mut rbac = self.rbac.write().await;
-            rbac.assign_role(&user_id.to_string(), default_role);
-        }
+        let subject = StringSubject::new(user_id.to_string());
+        self.engine
+            .assignment_store()
+            .assign_role(&subject, role_name)
+            .await?;
 
         Ok(user)
     }
@@ -123,12 +146,13 @@ impl<DB: UserDatabase> AuthService<DB> {
         }
 
         let user_id = user.id.to_string();
-        let rbac = self.rbac.read().await;
-        let roles: Vec<String> = rbac
-            .get_user(&user_id)
-            .map(|ur| ur.roles.iter().map(|r| format!("{:?}", r)).collect())
+        let subject = StringSubject::new(&user_id);
+        let roles = self
+            .engine
+            .assignment_store()
+            .roles_of(&subject)
+            .await
             .unwrap_or_default();
-        drop(rbac);
 
         let token = self.jwt.issue(&user_id, &user.username, roles.clone())?;
 
@@ -141,17 +165,16 @@ impl<DB: UserDatabase> AuthService<DB> {
         })
     }
 
-    pub async fn verify_token(&self, token: &str) -> Result<crate::auth::credential::basic::Claims> {
+    pub async fn verify_token(
+        &self,
+        token: &str,
+    ) -> Result<crate::auth::credential::basic::Claims> {
         self.jwt.verify(token)
     }
 
-    pub async fn check_permission(
-        &self,
-        user_id: &str,
-        permission: crate::rbac::compat::Permission,
-    ) -> bool {
-        let rbac = self.rbac.read().await;
-        rbac.check_permission(user_id, permission)
+    pub async fn check_permission(&self, user_id: &str, permission: &P) -> bool {
+        let subject = StringSubject::new(user_id);
+        self.engine.check(&subject, permission).await
     }
 
     pub async fn change_password(
@@ -160,8 +183,7 @@ impl<DB: UserDatabase> AuthService<DB> {
         old_password: &str,
         new_password: &str,
     ) -> Result<()> {
-        let uid = Uuid::parse_str(user_id)
-            .map_err(|_| anyhow!("invalid user_id"))?;
+        let uid = Uuid::parse_str(user_id).map_err(|_| anyhow!("invalid user_id"))?;
 
         let user = self
             .db
@@ -186,10 +208,77 @@ impl<DB: UserDatabase> AuthService<DB> {
     }
 
     pub async fn delete_user(&self, user_id: &str) -> Result<bool> {
-        let uid = Uuid::parse_str(user_id)
-            .map_err(|_| anyhow!("invalid user_id"))?;
+        let uid = Uuid::parse_str(user_id).map_err(|_| anyhow!("invalid user_id"))?;
         self.db.delete_user(&uid).await
     }
+}
+
+pub fn build_compat_engine() -> Arc<
+    RbacEngine<
+        StringSubject,
+        crate::rbac::compat::Permission,
+        SimpleRole<crate::rbac::compat::Permission>,
+        InMemoryAssignmentStore<StringSubject, crate::rbac::compat::Permission>,
+    >,
+> {
+    use crate::rbac::compat::Permission;
+
+    let mut role_reg = StaticRoleRegistry::new();
+    role_reg.register(SimpleRole::new("admin", Permission::all()));
+    role_reg.register(SimpleRole::new(
+        "operator",
+        [
+            Permission::AgentRead,
+            Permission::AgentWrite,
+            Permission::AgentExecute,
+            Permission::ConfigRead,
+            Permission::ConfigWrite,
+            Permission::KnowledgeRead,
+            Permission::KnowledgeWrite,
+            Permission::ContainerRead,
+            Permission::ContainerWrite,
+            Permission::DeployRead,
+            Permission::DeployExecute,
+            Permission::SystemRead,
+        ]
+        .iter()
+        .copied()
+        .collect(),
+    ));
+    role_reg.register(SimpleRole::new(
+        "viewer",
+        [
+            Permission::AgentRead,
+            Permission::ConfigRead,
+            Permission::KnowledgeRead,
+            Permission::ContainerRead,
+            Permission::SystemRead,
+            Permission::DeployRead,
+        ]
+        .iter()
+        .copied()
+        .collect(),
+    ));
+    role_reg.register(SimpleRole::new(
+        "agent",
+        [
+            Permission::AgentRead,
+            Permission::AgentExecute,
+            Permission::KnowledgeRead,
+        ]
+        .iter()
+        .copied()
+        .collect(),
+    ));
+
+    let perm_reg = StaticPermissionRegistry::new(Permission::all());
+    let store = InMemoryAssignmentStore::new();
+
+    Arc::new(RbacEngine::new(
+        Arc::new(role_reg),
+        Arc::new(perm_reg),
+        Arc::new(store),
+    ))
 }
 
 #[async_trait::async_trait]

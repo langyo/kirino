@@ -2,6 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
+use crate::rbac::traits::Permission as PermissionTrait;
+
 #[allow(deprecated)]
 #[deprecated(
     since = "0.2.0",
@@ -23,6 +25,38 @@ pub enum Permission {
     SystemWrite,
     DeployRead,
     DeployExecute,
+}
+
+#[allow(deprecated)]
+impl PermissionTrait for Permission {
+    fn name(&self) -> &str {
+        match self {
+            Permission::AgentRead => "agent_read",
+            Permission::AgentWrite => "agent_write",
+            Permission::AgentExecute => "agent_execute",
+            Permission::ConfigRead => "config_read",
+            Permission::ConfigWrite => "config_write",
+            Permission::KnowledgeRead => "knowledge_read",
+            Permission::KnowledgeWrite => "knowledge_write",
+            Permission::ContainerRead => "container_read",
+            Permission::ContainerWrite => "container_write",
+            Permission::SystemRead => "system_read",
+            Permission::SystemWrite => "system_write",
+            Permission::DeployRead => "deploy_read",
+            Permission::DeployExecute => "deploy_execute",
+        }
+    }
+
+    fn domain(&self) -> &str {
+        match self {
+            Permission::AgentRead | Permission::AgentWrite | Permission::AgentExecute => "agent",
+            Permission::ConfigRead | Permission::ConfigWrite => "config",
+            Permission::KnowledgeRead | Permission::KnowledgeWrite => "knowledge",
+            Permission::ContainerRead | Permission::ContainerWrite => "container",
+            Permission::SystemRead | Permission::SystemWrite => "system",
+            Permission::DeployRead | Permission::DeployExecute => "deploy",
+        }
+    }
 }
 
 #[allow(deprecated)]

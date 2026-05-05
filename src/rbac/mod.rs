@@ -2,6 +2,7 @@ pub mod cache;
 pub mod compat;
 pub mod engine;
 pub mod store;
+pub mod subject;
 pub mod traits;
 
 pub mod prelude {
@@ -11,6 +12,7 @@ pub mod prelude {
         InMemoryAssignmentStore, InMemoryRoleStore, SimpleRole, StaticPermissionRegistry,
         StaticRoleRegistry,
     };
+    pub use crate::rbac::subject::StringSubject;
     pub use crate::rbac::traits::{
         AssignmentStore, Permission, PermissionRegistry, Role, RoleRegistry, RoleStore, Subject,
     };
