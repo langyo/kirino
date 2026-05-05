@@ -1,6 +1,5 @@
 pub mod audit;
 pub mod cache;
-pub mod compat;
 pub mod constraints;
 pub mod engine;
 pub mod hierarchy;

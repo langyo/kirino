@@ -1,17 +1,16 @@
 use crate::database::sql::InMemoryUserDatabase;
-use crate::rbac::compat::Permission;
 use crate::rbac::store::memory::InMemoryAssignmentStore;
 use crate::rbac::store::registry::SimpleRole;
 use crate::rbac::subject::StringSubject;
 use crate::rbac::traits::AssignmentStore;
-use crate::service::login::{build_compat_engine, AuthService};
+use crate::service::login::{build_default_engine, AuthService, KirinoPermission};
 
-type CompatStore = InMemoryAssignmentStore<StringSubject, Permission>;
-type CompatAuthService = AuthService<InMemoryUserDatabase, Permission, SimpleRole<Permission>, CompatStore>;
+type DefaultStore = InMemoryAssignmentStore<StringSubject, KirinoPermission>;
+type DefaultAuthService = AuthService<InMemoryUserDatabase, KirinoPermission, SimpleRole<KirinoPermission>, DefaultStore>;
 
-fn make_auth() -> CompatAuthService {
+fn make_auth() -> DefaultAuthService {
     let db = InMemoryUserDatabase::new();
-    let engine = build_compat_engine();
+    let engine = build_default_engine();
     AuthService::new(db, "test-secret", 24, engine, "admin", "viewer")
 }
 
@@ -42,7 +41,7 @@ async fn test_first_user_is_admin() {
     assert!(auth
         .check_permission(
             &auth.login("admin", "password123").await.unwrap().user_id,
-            &Permission::SystemWrite,
+            &KirinoPermission::SystemWrite,
         )
         .await);
 }
@@ -55,8 +54,8 @@ async fn test_second_user_is_viewer() {
     auth.register("viewer", "password123", None).await.unwrap();
 
     let viewer_id = auth.login("viewer", "password123").await.unwrap().user_id;
-    assert!(auth.check_permission(&viewer_id, &Permission::AgentRead).await);
-    assert!(!auth.check_permission(&viewer_id, &Permission::SystemWrite).await);
+    assert!(auth.check_permission(&viewer_id, &KirinoPermission::AgentRead).await);
+    assert!(!auth.check_permission(&viewer_id, &KirinoPermission::SystemWrite).await);
 }
 
 #[tokio::test]
@@ -148,6 +147,6 @@ async fn test_rbac_role_change() {
         .unwrap();
 
     let uid = user.id.to_string();
-    assert!(auth.check_permission(&uid, &Permission::AgentWrite).await);
-    assert!(!auth.check_permission(&uid, &Permission::SystemWrite).await);
+    assert!(auth.check_permission(&uid, &KirinoPermission::AgentWrite).await);
+    assert!(!auth.check_permission(&uid, &KirinoPermission::SystemWrite).await);
 }

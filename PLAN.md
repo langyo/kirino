@@ -190,15 +190,7 @@ where
 
 ### 3.3 向后兼容策略
 
-保留 `src/rbac.rs` 中的具体类型但将其标记为 `#[deprecated]`，并提供迁移辅助：
-
-```rust
-// 保留为 entelecheia 的兼容层（kirino 内部不必使用）
-#[deprecated(since = "0.2.0", note = "Use rbac::traits and define your own Permission enum")]
-pub mod compat {
-    // 旧的 Role / Permission / RbacStore
-}
-```
+~~保留 `src/rbac.rs` 中的具体类型但将其标记为 `#[deprecated]`~~ → **已在 v0.1.2 中移除 compat 层**，具体类型改由下游项目自行定义。kirino 内置 `KirinoPermission`（`service::login`）仅作为参考实现。
 
 同时，把 entelecheia 中 fork 版本的额外修改（Agent 额外权限、serde default 等）合并回这个 compat 模块，确保 entelecheia 平滑迁移。
 

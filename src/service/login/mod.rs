@@ -1,7 +1,9 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use chrono::Utc;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::auth::credential::basic::JwtManager;
@@ -12,6 +14,73 @@ use crate::rbac::store::memory::InMemoryAssignmentStore;
 use crate::rbac::store::registry::{SimpleRole, StaticPermissionRegistry, StaticRoleRegistry};
 use crate::rbac::subject::StringSubject;
 use crate::rbac::traits::{AssignmentStore, Permission, Role};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KirinoPermission {
+    AgentRead,
+    AgentWrite,
+    AgentExecute,
+    ConfigRead,
+    ConfigWrite,
+    KnowledgeRead,
+    KnowledgeWrite,
+    ContainerRead,
+    ContainerWrite,
+    SystemRead,
+    SystemWrite,
+    DeployRead,
+    DeployExecute,
+}
+
+impl KirinoPermission {
+    pub fn all() -> HashSet<Self> {
+        use KirinoPermission::*;
+        [
+            AgentRead, AgentWrite, AgentExecute,
+            ConfigRead, ConfigWrite,
+            KnowledgeRead, KnowledgeWrite,
+            ContainerRead, ContainerWrite,
+            SystemRead, SystemWrite,
+            DeployRead, DeployExecute,
+        ]
+        .into_iter()
+        .collect()
+    }
+}
+
+impl Permission for KirinoPermission {
+    fn name(&self) -> &str {
+        match self {
+            KirinoPermission::AgentRead => "agent_read",
+            KirinoPermission::AgentWrite => "agent_write",
+            KirinoPermission::AgentExecute => "agent_execute",
+            KirinoPermission::ConfigRead => "config_read",
+            KirinoPermission::ConfigWrite => "config_write",
+            KirinoPermission::KnowledgeRead => "knowledge_read",
+            KirinoPermission::KnowledgeWrite => "knowledge_write",
+            KirinoPermission::ContainerRead => "container_read",
+            KirinoPermission::ContainerWrite => "container_write",
+            KirinoPermission::SystemRead => "system_read",
+            KirinoPermission::SystemWrite => "system_write",
+            KirinoPermission::DeployRead => "deploy_read",
+            KirinoPermission::DeployExecute => "deploy_execute",
+        }
+    }
+
+    fn domain(&self) -> &str {
+        match self {
+            KirinoPermission::AgentRead
+            | KirinoPermission::AgentWrite
+            | KirinoPermission::AgentExecute => "agent",
+            KirinoPermission::ConfigRead | KirinoPermission::ConfigWrite => "config",
+            KirinoPermission::KnowledgeRead | KirinoPermission::KnowledgeWrite => "knowledge",
+            KirinoPermission::ContainerRead | KirinoPermission::ContainerWrite => "container",
+            KirinoPermission::SystemRead | KirinoPermission::SystemWrite => "system",
+            KirinoPermission::DeployRead | KirinoPermission::DeployExecute => "deploy",
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct UserRecord {
@@ -213,65 +282,60 @@ where
     }
 }
 
-pub fn build_compat_engine() -> Arc<
+pub fn build_default_engine() -> Arc<
     RbacEngine<
         StringSubject,
-        crate::rbac::compat::Permission,
-        SimpleRole<crate::rbac::compat::Permission>,
-        InMemoryAssignmentStore<StringSubject, crate::rbac::compat::Permission>,
+        KirinoPermission,
+        SimpleRole<KirinoPermission>,
+        InMemoryAssignmentStore<StringSubject, KirinoPermission>,
     >,
 > {
-    use crate::rbac::compat::Permission;
-
     let mut role_reg = StaticRoleRegistry::new();
-    role_reg.register(SimpleRole::new("admin", Permission::all()));
+    role_reg.register(SimpleRole::new("admin", KirinoPermission::all()));
     role_reg.register(SimpleRole::new(
         "operator",
         [
-            Permission::AgentRead,
-            Permission::AgentWrite,
-            Permission::AgentExecute,
-            Permission::ConfigRead,
-            Permission::ConfigWrite,
-            Permission::KnowledgeRead,
-            Permission::KnowledgeWrite,
-            Permission::ContainerRead,
-            Permission::ContainerWrite,
-            Permission::DeployRead,
-            Permission::DeployExecute,
-            Permission::SystemRead,
+            KirinoPermission::AgentRead,
+            KirinoPermission::AgentWrite,
+            KirinoPermission::AgentExecute,
+            KirinoPermission::ConfigRead,
+            KirinoPermission::ConfigWrite,
+            KirinoPermission::KnowledgeRead,
+            KirinoPermission::KnowledgeWrite,
+            KirinoPermission::ContainerRead,
+            KirinoPermission::ContainerWrite,
+            KirinoPermission::DeployRead,
+            KirinoPermission::DeployExecute,
+            KirinoPermission::SystemRead,
         ]
-        .iter()
-        .copied()
+        .into_iter()
         .collect(),
     ));
     role_reg.register(SimpleRole::new(
         "viewer",
         [
-            Permission::AgentRead,
-            Permission::ConfigRead,
-            Permission::KnowledgeRead,
-            Permission::ContainerRead,
-            Permission::SystemRead,
-            Permission::DeployRead,
+            KirinoPermission::AgentRead,
+            KirinoPermission::ConfigRead,
+            KirinoPermission::KnowledgeRead,
+            KirinoPermission::ContainerRead,
+            KirinoPermission::SystemRead,
+            KirinoPermission::DeployRead,
         ]
-        .iter()
-        .copied()
+        .into_iter()
         .collect(),
     ));
     role_reg.register(SimpleRole::new(
         "agent",
         [
-            Permission::AgentRead,
-            Permission::AgentExecute,
-            Permission::KnowledgeRead,
+            KirinoPermission::AgentRead,
+            KirinoPermission::AgentExecute,
+            KirinoPermission::KnowledgeRead,
         ]
-        .iter()
-        .copied()
+        .into_iter()
         .collect(),
     ));
 
-    let perm_reg = StaticPermissionRegistry::new(Permission::all());
+    let perm_reg = StaticPermissionRegistry::new(KirinoPermission::all());
     let store = InMemoryAssignmentStore::new();
 
     Arc::new(RbacEngine::new(
