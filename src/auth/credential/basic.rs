@@ -43,8 +43,12 @@ impl JwtManager {
     }
 
     pub fn verify(&self, token: &str) -> Result<Claims> {
-        let data = decode::<Claims>(token, &self.decoding_key, &Validation::new(Algorithm::HS256))
-            .map_err(|e| anyhow!("JWT verify failed: {}", e))?;
+        let data = decode::<Claims>(
+            token,
+            &self.decoding_key,
+            &Validation::new(Algorithm::HS256),
+        )
+        .map_err(|e| anyhow!("JWT verify failed: {}", e))?;
         Ok(data.claims)
     }
 }

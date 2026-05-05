@@ -170,10 +170,18 @@ mod tests {
     #[test]
     fn test_temporal_constraint() {
         let now = chrono::Utc::now();
-        let valid = TemporalConstraint::new("temp_role", now - chrono::Duration::hours(1), now + chrono::Duration::hours(1));
+        let valid = TemporalConstraint::new(
+            "temp_role",
+            now - chrono::Duration::hours(1),
+            now + chrono::Duration::hours(1),
+        );
         assert!(valid.is_valid());
 
-        let expired = TemporalConstraint::new("temp_role", now - chrono::Duration::hours(2), now - chrono::Duration::hours(1));
+        let expired = TemporalConstraint::new(
+            "temp_role",
+            now - chrono::Duration::hours(2),
+            now - chrono::Duration::hours(1),
+        );
         assert!(!expired.is_valid());
     }
 }

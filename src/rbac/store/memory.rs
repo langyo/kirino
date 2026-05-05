@@ -89,11 +89,7 @@ where
         Ok(perms.get(&key).cloned().unwrap_or_default())
     }
 
-    async fn set_extra_permissions(
-        &self,
-        subject: &S,
-        perms: HashSet<P>,
-    ) -> anyhow::Result<()> {
+    async fn set_extra_permissions(&self, subject: &S, perms: HashSet<P>) -> anyhow::Result<()> {
         let key = subject.subject_id().to_string();
         let mut extra = self.extra_perms.write().unwrap();
         extra.insert(key, perms);
@@ -106,11 +102,7 @@ where
         Ok(perms.get(&key).cloned().unwrap_or_default())
     }
 
-    async fn set_denied_permissions(
-        &self,
-        subject: &S,
-        perms: HashSet<P>,
-    ) -> anyhow::Result<()> {
+    async fn set_denied_permissions(&self, subject: &S, perms: HashSet<P>) -> anyhow::Result<()> {
         let key = subject.subject_id().to_string();
         let mut denied = self.denied_perms.write().unwrap();
         denied.insert(key, perms);
@@ -138,11 +130,7 @@ impl<P: Permission> Default for InMemoryRoleStore<P> {
 
 #[async_trait]
 impl<P: Permission> RoleStore<P> for InMemoryRoleStore<P> {
-    async fn create_role(
-        &self,
-        role_name: &str,
-        permissions: HashSet<P>,
-    ) -> anyhow::Result<()> {
+    async fn create_role(&self, role_name: &str, permissions: HashSet<P>) -> anyhow::Result<()> {
         let mut roles = self.roles.write().unwrap();
         roles.insert(role_name.to_string(), permissions);
         Ok(())
@@ -153,10 +141,7 @@ impl<P: Permission> RoleStore<P> for InMemoryRoleStore<P> {
         Ok(roles.remove(role_name).is_some())
     }
 
-    async fn get_role_permissions(
-        &self,
-        role_name: &str,
-    ) -> anyhow::Result<Option<HashSet<P>>> {
+    async fn get_role_permissions(&self, role_name: &str) -> anyhow::Result<Option<HashSet<P>>> {
         let roles = self.roles.read().unwrap();
         Ok(roles.get(role_name).cloned())
     }
@@ -254,6 +239,10 @@ mod tests {
         assert_eq!(roles, vec!["editor".to_string()]);
 
         assert!(store.delete_role("editor").await.unwrap());
-        assert!(store.get_role_permissions("editor").await.unwrap().is_none());
+        assert!(store
+            .get_role_permissions("editor")
+            .await
+            .unwrap()
+            .is_none());
     }
 }

@@ -47,30 +47,15 @@ where
     async fn roles_of(&self, subject: &S) -> anyhow::Result<Vec<String>>;
     async fn subjects_with_role(&self, role_name: &str) -> anyhow::Result<Vec<String>>;
     async fn extra_permissions(&self, subject: &S) -> anyhow::Result<HashSet<P>>;
-    async fn set_extra_permissions(
-        &self,
-        subject: &S,
-        perms: HashSet<P>,
-    ) -> anyhow::Result<()>;
+    async fn set_extra_permissions(&self, subject: &S, perms: HashSet<P>) -> anyhow::Result<()>;
     async fn denied_permissions(&self, subject: &S) -> anyhow::Result<HashSet<P>>;
-    async fn set_denied_permissions(
-        &self,
-        subject: &S,
-        perms: HashSet<P>,
-    ) -> anyhow::Result<()>;
+    async fn set_denied_permissions(&self, subject: &S, perms: HashSet<P>) -> anyhow::Result<()>;
 }
 
 #[async_trait]
 pub trait RoleStore<P: Permission>: Send + Sync {
-    async fn create_role(
-        &self,
-        role_name: &str,
-        permissions: HashSet<P>,
-    ) -> anyhow::Result<()>;
+    async fn create_role(&self, role_name: &str, permissions: HashSet<P>) -> anyhow::Result<()>;
     async fn delete_role(&self, role_name: &str) -> anyhow::Result<bool>;
-    async fn get_role_permissions(
-        &self,
-        role_name: &str,
-    ) -> anyhow::Result<Option<HashSet<P>>>;
+    async fn get_role_permissions(&self, role_name: &str) -> anyhow::Result<Option<HashSet<P>>>;
     async fn list_roles(&self) -> anyhow::Result<Vec<String>>;
 }

@@ -45,9 +45,7 @@ impl IdentitySubject {
 
     pub fn is_expired(&self) -> bool {
         match &self.identity {
-            Identity::Temporary { expires_at, .. } => {
-                *expires_at < chrono::Utc::now()
-            }
+            Identity::Temporary { expires_at, .. } => *expires_at < chrono::Utc::now(),
             _ => false,
         }
     }
@@ -81,8 +79,7 @@ impl Delegatable for IdentitySubject {
     fn can_delegate_to<S: Subject>(&self, delegate: &S) -> bool {
         match &self.identity {
             Identity::Service { caller, .. } => {
-                delegate.subject_id() == &caller.to_string()
-                    && delegate.subject_type() == "user"
+                delegate.subject_id() == caller.to_string() && delegate.subject_type() == "user"
             }
             _ => false,
         }

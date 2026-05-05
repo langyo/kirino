@@ -37,12 +37,19 @@ impl KirinoPermission {
     pub fn all() -> HashSet<Self> {
         use KirinoPermission::*;
         [
-            AgentRead, AgentWrite, AgentExecute,
-            ConfigRead, ConfigWrite,
-            KnowledgeRead, KnowledgeWrite,
-            ContainerRead, ContainerWrite,
-            SystemRead, SystemWrite,
-            DeployRead, DeployExecute,
+            AgentRead,
+            AgentWrite,
+            AgentExecute,
+            ConfigRead,
+            ConfigWrite,
+            KnowledgeRead,
+            KnowledgeWrite,
+            ContainerRead,
+            ContainerWrite,
+            SystemRead,
+            SystemWrite,
+            DeployRead,
+            DeployExecute,
         ]
         .into_iter()
         .collect()
@@ -282,14 +289,14 @@ where
     }
 }
 
-pub fn build_default_engine() -> Arc<
-    RbacEngine<
-        StringSubject,
-        KirinoPermission,
-        SimpleRole<KirinoPermission>,
-        InMemoryAssignmentStore<StringSubject, KirinoPermission>,
-    >,
-> {
+type DefaultEngine = RbacEngine<
+    StringSubject,
+    KirinoPermission,
+    SimpleRole<KirinoPermission>,
+    InMemoryAssignmentStore<StringSubject, KirinoPermission>,
+>;
+
+pub fn build_default_engine() -> Arc<DefaultEngine> {
     let mut role_reg = StaticRoleRegistry::new();
     role_reg.register(SimpleRole::new("admin", KirinoPermission::all()));
     role_reg.register(SimpleRole::new(

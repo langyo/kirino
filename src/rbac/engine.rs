@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::rbac::cache::{PermissionCache, TtlPermissionCache};
-use crate::rbac::hierarchy::{HierarchicalRole, resolve_role_chain};
+use crate::rbac::hierarchy::{resolve_role_chain, HierarchicalRole};
 use crate::rbac::traits::{
     AssignmentStore, Permission, PermissionRegistry, Role, RoleRegistry, Subject,
 };
@@ -222,13 +222,23 @@ mod tests {
         }
     }
 
-    fn build_engine() -> RbacEngine<TestSubject, TestPerm, SimpleRole<TestPerm>, InMemoryAssignmentStore<TestSubject, TestPerm>> {
+    fn build_engine() -> RbacEngine<
+        TestSubject,
+        TestPerm,
+        SimpleRole<TestPerm>,
+        InMemoryAssignmentStore<TestSubject, TestPerm>,
+    > {
         let mut role_reg = StaticRoleRegistry::new();
         role_reg.register(SimpleRole::new(
             "admin",
-            [TestPerm::Read, TestPerm::Write, TestPerm::Delete, TestPerm::Admin]
-                .into_iter()
-                .collect(),
+            [
+                TestPerm::Read,
+                TestPerm::Write,
+                TestPerm::Delete,
+                TestPerm::Admin,
+            ]
+            .into_iter()
+            .collect(),
         ));
         role_reg.register(SimpleRole::new(
             "viewer",
@@ -240,25 +250,30 @@ mod tests {
         ));
 
         let perm_reg = StaticPermissionRegistry::new(
-            [TestPerm::Read, TestPerm::Write, TestPerm::Delete, TestPerm::Admin]
-                .into_iter()
-                .collect(),
+            [
+                TestPerm::Read,
+                TestPerm::Write,
+                TestPerm::Delete,
+                TestPerm::Admin,
+            ]
+            .into_iter()
+            .collect(),
         );
 
         let store = InMemoryAssignmentStore::new();
 
-        RbacEngine::new(
-            Arc::new(role_reg),
-            Arc::new(perm_reg),
-            Arc::new(store),
-        )
+        RbacEngine::new(Arc::new(role_reg), Arc::new(perm_reg), Arc::new(store))
     }
 
     #[tokio::test]
     async fn test_check_admin_role() {
         let engine = build_engine();
         let admin = TestSubject("admin-user".to_string());
-        engine.assignment_store().assign_role(&admin, "admin").await.unwrap();
+        engine
+            .assignment_store()
+            .assign_role(&admin, "admin")
+            .await
+            .unwrap();
 
         assert!(engine.check(&admin, &TestPerm::Read).await);
         assert!(engine.check(&admin, &TestPerm::Write).await);
@@ -270,7 +285,11 @@ mod tests {
     async fn test_check_viewer_role() {
         let engine = build_engine();
         let viewer = TestSubject("viewer-user".to_string());
-        engine.assignment_store().assign_role(&viewer, "viewer").await.unwrap();
+        engine
+            .assignment_store()
+            .assign_role(&viewer, "viewer")
+            .await
+            .unwrap();
 
         assert!(engine.check(&viewer, &TestPerm::Read).await);
         assert!(!engine.check(&viewer, &TestPerm::Write).await);
@@ -289,7 +308,11 @@ mod tests {
     async fn test_deny_override() {
         let engine = build_engine();
         let user = TestSubject("denied-user".to_string());
-        engine.assignment_store().assign_role(&user, "admin").await.unwrap();
+        engine
+            .assignment_store()
+            .assign_role(&user, "admin")
+            .await
+            .unwrap();
         engine
             .assignment_store()
             .set_denied_permissions(&user, [TestPerm::Admin].into_iter().collect())
@@ -304,7 +327,11 @@ mod tests {
     async fn test_extra_permissions() {
         let engine = build_engine();
         let user = TestSubject("extra-user".to_string());
-        engine.assignment_store().assign_role(&user, "viewer").await.unwrap();
+        engine
+            .assignment_store()
+            .assign_role(&user, "viewer")
+            .await
+            .unwrap();
         engine
             .assignment_store()
             .set_extra_permissions(&user, [TestPerm::Write].into_iter().collect())
@@ -320,25 +347,35 @@ mod tests {
     async fn test_check_batch() {
         let engine = build_engine();
         let editor = TestSubject("editor-user".to_string());
-        engine.assignment_store().assign_role(&editor, "editor").await.unwrap();
+        engine
+            .assignment_store()
+            .assign_role(&editor, "editor")
+            .await
+            .unwrap();
 
         let results = engine
             .check_batch(
                 &editor,
-                &[TestPerm::Read, TestPerm::Write, TestPerm::Delete].into_iter().collect(),
+                &[TestPerm::Read, TestPerm::Write, TestPerm::Delete]
+                    .into_iter()
+                    .collect(),
             )
             .await;
 
-        assert_eq!(results[&TestPerm::Read], true);
-        assert_eq!(results[&TestPerm::Write], true);
-        assert_eq!(results[&TestPerm::Delete], false);
+        assert!(results[&TestPerm::Read]);
+        assert!(results[&TestPerm::Write]);
+        assert!(!results[&TestPerm::Delete]);
     }
 
     #[tokio::test]
     async fn test_effective_permissions() {
         let engine = build_engine();
         let user = TestSubject("ep-user".to_string());
-        engine.assignment_store().assign_role(&user, "editor").await.unwrap();
+        engine
+            .assignment_store()
+            .assign_role(&user, "editor")
+            .await
+            .unwrap();
         engine
             .assignment_store()
             .set_extra_permissions(&user, [TestPerm::Delete].into_iter().collect())
@@ -356,10 +393,17 @@ mod tests {
     async fn test_effective_permissions_with_deny() {
         let engine = build_engine();
         let user = TestSubject("ep-deny-user".to_string());
-        engine.assignment_store().assign_role(&user, "admin").await.unwrap();
         engine
             .assignment_store()
-            .set_denied_permissions(&user, [TestPerm::Admin, TestPerm::Delete].into_iter().collect())
+            .assign_role(&user, "admin")
+            .await
+            .unwrap();
+        engine
+            .assignment_store()
+            .set_denied_permissions(
+                &user,
+                [TestPerm::Admin, TestPerm::Delete].into_iter().collect(),
+            )
             .await
             .unwrap();
 

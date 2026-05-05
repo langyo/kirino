@@ -1,10 +1,5 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-
-use crate::rbac::traits::{Permission, Subject};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditEntry {
@@ -80,7 +75,7 @@ mod tests {
         let recent = logger.recent(10);
         assert_eq!(recent.len(), 2);
         assert_eq!(recent[0].subject_id, "user2");
-        assert!(recent[0].granted == false);
+        assert!(!recent[0].granted);
         assert!(recent[1].granted);
     }
 

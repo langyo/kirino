@@ -51,7 +51,10 @@ where
     P: Permission,
 {
     fn get(&self, subject: &S, permission: &P) -> Option<bool> {
-        let key = (subject.subject_id().to_string(), permission.name().to_string());
+        let key = (
+            subject.subject_id().to_string(),
+            permission.name().to_string(),
+        );
         let cache = self.cache.read().unwrap();
         cache.get(&key).and_then(|entry| {
             if Instant::now() < entry.expires_at {
@@ -63,7 +66,10 @@ where
     }
 
     fn set(&self, subject: &S, permission: &P, granted: bool) {
-        let key = (subject.subject_id().to_string(), permission.name().to_string());
+        let key = (
+            subject.subject_id().to_string(),
+            permission.name().to_string(),
+        );
         let mut cache = self.cache.write().unwrap();
         cache.insert(
             key,

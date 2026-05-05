@@ -1,10 +1,5 @@
-use std::collections::HashSet;
-
 use anyhow::{anyhow, Result};
 
-use super::policies::{
-    CardinalityConstraint, DsdPolicy, PrerequisiteConstraint, SsdPolicy,
-};
 use super::store::ConstraintStore;
 
 pub struct ConstraintValidator<S: ConstraintStore> {
@@ -106,6 +101,9 @@ impl<S: ConstraintStore> ConstraintValidator<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rbac::constraints::policies::{
+        CardinalityConstraint, DsdPolicy, PrerequisiteConstraint, SsdPolicy,
+    };
     use crate::rbac::constraints::store::InMemoryConstraintStore;
 
     #[tokio::test]

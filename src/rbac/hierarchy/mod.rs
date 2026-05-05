@@ -154,18 +154,18 @@ mod tests {
         reg.register(
             HierarchyNode::new(
                 "operator",
-                [TestPerm::Write, TestPerm::Delete]
-                    .into_iter()
-                    .collect(),
+                [TestPerm::Write, TestPerm::Delete].into_iter().collect(),
             )
             .with_parents(vec!["viewer".to_string()]),
         );
-        reg.register(
-            HierarchyNode::new("auditor", [TestPerm::Read].into_iter().collect()),
-        );
-        reg.register(
-            HierarchyNode::new("viewer", [TestPerm::Read].into_iter().collect()),
-        );
+        reg.register(HierarchyNode::new(
+            "auditor",
+            [TestPerm::Read].into_iter().collect(),
+        ));
+        reg.register(HierarchyNode::new(
+            "viewer",
+            [TestPerm::Read].into_iter().collect(),
+        ));
         reg
     }
 

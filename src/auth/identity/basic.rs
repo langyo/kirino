@@ -36,6 +36,12 @@ impl InMemoryIdentityProvider {
     }
 }
 
+impl Default for InMemoryIdentityProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[async_trait]
 impl IdentityProvider for InMemoryIdentityProvider {
     async fn create(&self, _identity: &Identity) -> Result<()> {

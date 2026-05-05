@@ -5,7 +5,6 @@ use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::rbac::constraints::policies::DsdPolicy;
 use crate::rbac::constraints::store::ConstraintStore;
 use crate::rbac::traits::{AssignmentStore, Permission, Subject};
 
@@ -132,7 +131,10 @@ where
 
         let assigned = self.assignment_store.roles_of(&session.subject).await?;
         if !assigned.contains(&role_name.to_string()) {
-            return Err(anyhow::anyhow!("role '{}' not assigned to subject", role_name));
+            return Err(anyhow::anyhow!(
+                "role '{}' not assigned to subject",
+                role_name
+            ));
         }
 
         let mut test_roles = session.active_roles.clone();
@@ -141,7 +143,9 @@ where
         drop(sessions);
         self.validate_dsd(&test_roles).await?;
         let mut sessions = self.sessions.write().await;
-        let session = sessions.get_mut(&session_id).ok_or_else(|| anyhow::anyhow!("session not found"))?;
+        let session = sessions
+            .get_mut(&session_id)
+            .ok_or_else(|| anyhow::anyhow!("session not found"))?;
         session.active_roles.insert(role_name.to_string());
         Ok(())
     }
@@ -175,6 +179,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rbac::constraints::policies::DsdPolicy;
     use crate::rbac::constraints::store::InMemoryConstraintStore;
     use crate::rbac::store::memory::InMemoryAssignmentStore;
     use crate::rbac::subject::StringSubject;
@@ -184,6 +189,7 @@ mod tests {
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    #[allow(dead_code)]
     enum TestPerm {
         Read,
         Write,
@@ -208,11 +214,7 @@ mod tests {
         store.assign_role(&subj, "viewer").await.unwrap();
 
         let session = mgr
-            .create_session(
-                &subj,
-                ["admin".to_string()].into(),
-                Duration::hours(1),
-            )
+            .create_session(&subj, ["admin".to_string()].into(), Duration::hours(1))
             .await
             .unwrap();
 
