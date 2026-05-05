@@ -223,7 +223,10 @@ where
             .await
             .unwrap_or_default();
 
-        let token = self.jwt.issue(&user_id, &user.username, roles.clone())?;
+        let effective = self.engine.effective_permissions(&subject).await;
+        let permissions: Vec<String> = effective.iter().map(|p| p.name().to_string()).collect();
+
+        let token = self.jwt.issue(&user_id, &user.username, roles.clone(), permissions)?;
 
         Ok(LoginResult {
             token,

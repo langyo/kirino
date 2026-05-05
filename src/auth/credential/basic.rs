@@ -9,6 +9,7 @@ pub struct Claims {
     pub sub: String,
     pub user_id: String,
     pub roles: Vec<String>,
+    pub permissions: Vec<String>,
     pub iat: i64,
     pub exp: i64,
 }
@@ -29,12 +30,19 @@ impl JwtManager {
         }
     }
 
-    pub fn issue(&self, user_id: &str, username: &str, roles: Vec<String>) -> Result<String> {
+    pub fn issue(
+        &self,
+        user_id: &str,
+        username: &str,
+        roles: Vec<String>,
+        permissions: Vec<String>,
+    ) -> Result<String> {
         let now = Utc::now();
         let claims = Claims {
             sub: username.to_string(),
             user_id: user_id.to_string(),
             roles,
+            permissions,
             iat: now.timestamp(),
             exp: (now + Duration::hours(self.expiration_hours)).timestamp(),
         };
@@ -56,11 +64,14 @@ mod tests {
     #[test]
     fn test_issue_and_verify() {
         let mgr = JwtManager::new("test-secret", 24);
-        let token = mgr.issue("user-1", "alice", vec!["admin".into()]).unwrap();
+        let token = mgr
+            .issue("user-1", "alice", vec!["admin".into()], vec!["system_write".into()])
+            .unwrap();
         let claims = mgr.verify(&token).unwrap();
         assert_eq!(claims.sub, "alice");
         assert_eq!(claims.user_id, "user-1");
         assert_eq!(claims.roles, vec!["admin".to_string()]);
+        assert_eq!(claims.permissions, vec!["system_write".to_string()]);
     }
 
     #[test]
