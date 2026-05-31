@@ -679,10 +679,7 @@ mod tests {
             .await;
 
         let v_restored = arbiter.authorize(&req).await;
-        assert!(
-            v_restored.allowed,
-            "after restore to L4, read-only should be allowed"
-        );
+        assert!(v_restored.allowed, "after restore to L4, read-only should be allowed");
         assert_ne!(v_restored.autonomy_level, AutonomyLevel::L0Frozen);
     }
 
@@ -730,14 +727,8 @@ mod tests {
         );
 
         let verdict = arbiter.authorize(&req).await;
-        assert!(
-            verdict.allowed,
-            "read-only from unknown agent should pass default policy"
-        );
-        assert!(
-            verdict.risk_score > 0.0,
-            "should have some risk even for reads"
-        );
+        assert!(verdict.allowed, "read-only from unknown agent should pass default policy");
+        assert!(verdict.risk_score > 0.0, "should have some risk even for reads");
     }
 
     #[tokio::test]

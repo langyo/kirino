@@ -29,7 +29,7 @@ pub mod prelude {
             delegator::{Delegator, DelegatorType},
             domain::{DomainMatch, DomainScope, TaskDomain},
             metrics::{ActionCategory, ActionRequest, ActionSensitivity},
-            policy::{default_dynamic_policy, DynamicPolicy},
+            policy::{DynamicPolicy, default_dynamic_policy},
             trust::{InMemoryTrustScoreStore, TrustDecayWorker, TrustScore, TrustScoreStore},
             verdict::{
                 ActionOutcome, AuthorizationVerdict, AutonomyLevel, RiskScore, Strategy, SubScores,
