@@ -57,7 +57,10 @@ where
             subject.subject_id().to_string(),
             permission.name().to_string(),
         );
-        let cache = self.cache.read().unwrap();
+        let cache = match self.cache.read() {
+            Ok(guard) => guard,
+            Err(_) => return None,
+        };
         cache.get(&key).and_then(|entry| {
             if Instant::now() < entry.expires_at {
                 Some(entry.granted)
@@ -72,25 +75,28 @@ where
             subject.subject_id().to_string(),
             permission.name().to_string(),
         );
-        let mut cache = self.cache.write().unwrap();
-        cache.insert(
-            key,
-            CacheEntry {
-                granted,
-                expires_at: Instant::now() + self.ttl,
-            },
-        );
+        if let Ok(mut cache) = self.cache.write() {
+            cache.insert(
+                key,
+                CacheEntry {
+                    granted,
+                    expires_at: Instant::now() + self.ttl,
+                },
+            );
+        }
     }
 
     fn invalidate_subject(&self, subject: &S) {
         let sid = subject.subject_id().to_string();
-        let mut cache = self.cache.write().unwrap();
-        cache.retain(|(s, _), _| s != &sid);
+        if let Ok(mut cache) = self.cache.write() {
+            cache.retain(|(s, _), _| s != &sid);
+        }
     }
 
     fn invalidate_all(&self) {
-        let mut cache = self.cache.write().unwrap();
-        cache.clear();
+        if let Ok(mut cache) = self.cache.write() {
+            cache.clear();
+        }
     }
 }
 
