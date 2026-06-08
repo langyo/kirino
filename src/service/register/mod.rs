@@ -27,13 +27,13 @@ mod tests {
         let auth = make_auth();
 
         let user = auth
-            .register("alice", "password123", Some("Alice"))
+            .register("alice", "Password123!", Some("Alice"))
             .await
             .unwrap();
         assert_eq!(user.username, "alice");
         assert_eq!(user.display_name, Some("Alice".to_string()));
 
-        let result = auth.login("alice", "password123").await.unwrap();
+        let result = auth.login("alice", "Password123!").await.unwrap();
         assert_eq!(result.username, "alice");
         assert!(!result.token.is_empty());
 
@@ -45,10 +45,10 @@ mod tests {
     async fn test_first_user_is_admin() {
         let auth = make_auth();
 
-        auth.register("admin", "password123", None).await.unwrap();
+        auth.register("admin", "Password123!", None).await.unwrap();
         assert!(
             auth.check_permission(
-                &auth.login("admin", "password123").await.unwrap().user_id,
+                &auth.login("admin", "Password123!").await.unwrap().user_id,
                 &KirinoPermission::SystemWrite,
             )
             .await
@@ -59,10 +59,10 @@ mod tests {
     async fn test_second_user_is_viewer() {
         let auth = make_auth();
 
-        auth.register("admin", "password123", None).await.unwrap();
-        auth.register("viewer", "password123", None).await.unwrap();
+        auth.register("admin", "Password123!", None).await.unwrap();
+        auth.register("viewer", "Password123!", None).await.unwrap();
 
-        let viewer_id = auth.login("viewer", "password123").await.unwrap().user_id;
+        let viewer_id = auth.login("viewer", "Password123!").await.unwrap().user_id;
         assert!(
             auth.check_permission(&viewer_id, &KirinoPermission::AgentRead)
                 .await
@@ -78,7 +78,7 @@ mod tests {
     async fn test_wrong_password() {
         let auth = make_auth();
 
-        auth.register("alice", "password123", None).await.unwrap();
+        auth.register("alice", "Password123!", None).await.unwrap();
         assert!(auth.login("alice", "wrong").await.is_err());
     }
 
@@ -86,30 +86,30 @@ mod tests {
     async fn test_change_password() {
         let auth = make_auth();
 
-        let user = auth.register("alice", "old_password", None).await.unwrap();
-        auth.change_password(&user.id.to_string(), "old_password", "new_password")
+        let user = auth.register("alice", "Old_Pass123!", None).await.unwrap();
+        auth.change_password(&user.id.to_string(), "Old_Pass123!", "New_Pass456!")
             .await
             .unwrap();
 
-        assert!(auth.login("alice", "old_password").await.is_err());
-        assert!(auth.login("alice", "new_password").await.is_ok());
+        assert!(auth.login("alice", "Old_Pass123!").await.is_err());
+        assert!(auth.login("alice", "New_Pass456!").await.is_ok());
     }
 
     #[tokio::test]
     async fn test_delete_user() {
         let auth = make_auth();
 
-        let user = auth.register("alice", "password123", None).await.unwrap();
+        let user = auth.register("alice", "Password123!", None).await.unwrap();
         assert!(auth.delete_user(&user.id.to_string()).await.unwrap());
-        assert!(auth.login("alice", "password123").await.is_err());
+        assert!(auth.login("alice", "Password123!").await.is_err());
     }
 
     #[tokio::test]
     async fn test_duplicate_username() {
         let auth = make_auth();
 
-        auth.register("alice", "password123", None).await.unwrap();
-        assert!(auth.register("alice", "password456", None).await.is_err());
+        auth.register("alice", "Password123!", None).await.unwrap();
+        assert!(auth.register("alice", "Other_Pass456!", None).await.is_err());
     }
 
     #[tokio::test]
@@ -117,15 +117,21 @@ mod tests {
         let auth = make_auth();
 
         assert!(auth.register("alice", "short", None).await.is_err());
-        assert!(auth.register("", "password123", None).await.is_err());
+        assert!(auth.register("", "Password123!", None).await.is_err());
+        assert!(auth.register("alice", "abc", None).await.is_err());
+        assert!(
+            auth.register("alice", "simplepassword", None)
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
     async fn test_list_users() {
         let auth = make_auth();
 
-        auth.register("alice", "password123", None).await.unwrap();
-        auth.register("bob", "password123", None).await.unwrap();
+        auth.register("alice", "Password123!", None).await.unwrap();
+        auth.register("bob", "Password123!", None).await.unwrap();
 
         let users = auth.list_users().await.unwrap();
         assert_eq!(users.len(), 2);
@@ -136,7 +142,7 @@ mod tests {
         let auth = make_auth();
 
         let user = auth
-            .register("operator", "password123", None)
+            .register("operator", "Password123!", None)
             .await
             .unwrap();
 
@@ -172,7 +178,7 @@ mod tests {
         let auth = AuthService::new(db, "test-secret", 24, engine, "admin", "viewer")
             .with_rate_limiter(LoginRateLimiter::new(3, 60, 60));
 
-        auth.register("alice", "password123", None).await.unwrap();
+        auth.register("alice", "Password123!", None).await.unwrap();
 
         for _ in 0..3 {
             assert!(auth.login("alice", "wrong").await.is_err());
@@ -194,11 +200,11 @@ mod tests {
         let auth = AuthService::new(db, "test-secret", 24, engine, "admin", "viewer")
             .with_rate_limiter(LoginRateLimiter::new(3, 60, 60));
 
-        auth.register("alice", "password123", None).await.unwrap();
+        auth.register("alice", "Password123!", None).await.unwrap();
 
         assert!(auth.login("alice", "wrong").await.is_err());
         assert!(auth.login("alice", "wrong").await.is_err());
-        assert!(auth.login("alice", "password123").await.is_ok());
+        assert!(auth.login("alice", "Password123!").await.is_ok());
         assert!(auth.login("alice", "wrong").await.is_err());
         assert!(auth.login("alice", "wrong").await.is_err());
     }

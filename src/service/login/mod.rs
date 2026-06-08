@@ -39,6 +39,44 @@ pub struct LoginRateLimiter {
     entries: Arc<RwLock<HashMap<String, RateLimitEntry>>>,
 }
 
+const MIN_PASSWORD_LEN: usize = 8;
+const MAX_PASSWORD_LEN: usize = 128;
+
+pub fn validate_password(password: &str) -> Result<()> {
+    if password.len() < MIN_PASSWORD_LEN {
+        return Err(anyhow!(
+            "password must be at least {} characters",
+            MIN_PASSWORD_LEN
+        ));
+    }
+    if password.len() > MAX_PASSWORD_LEN {
+        return Err(anyhow!(
+            "password must be at most {} characters",
+            MAX_PASSWORD_LEN
+        ));
+    }
+
+    let has_uppercase = password.chars().any(|c| c.is_ascii_uppercase());
+    let has_lowercase = password.chars().any(|c| c.is_ascii_lowercase());
+    let has_digit = password.chars().any(|c| c.is_ascii_digit());
+    let has_special = password
+        .chars()
+        .any(|c| !c.is_ascii_alphanumeric());
+
+    let categories = [has_uppercase, has_lowercase, has_digit, has_special]
+        .iter()
+        .filter(|&&x| x)
+        .count();
+
+    if categories < 3 {
+        return Err(anyhow!(
+            "password must contain at least 3 of: uppercase, lowercase, digit, special character"
+        ));
+    }
+
+    Ok(())
+}
+
 impl LoginRateLimiter {
     pub fn new(max_attempts: u32, window_secs: u64, lockout_secs: u64) -> Self {
         Self {
@@ -265,9 +303,7 @@ where
         if username.trim().is_empty() {
             return Err(anyhow!("username must not be empty"));
         }
-        if password.len() < 6 {
-            return Err(anyhow!("password must be at least 6 characters"));
-        }
+        validate_password(password)?;
 
         if self.db.find_by_username(username).await?.is_some() {
             return Err(anyhow!("username already exists"));
@@ -395,9 +431,7 @@ where
             return Err(anyhow!("old password is incorrect"));
         }
 
-        if new_password.len() < 6 {
-            return Err(anyhow!("new password must be at least 6 characters"));
-        }
+        validate_password(new_password)?;
 
         let new_hash = hash_password(new_password)?;
         self.jwt.revoke_all_for_user(user_id).await;
