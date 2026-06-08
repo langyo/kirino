@@ -296,6 +296,7 @@ where
     rate_limiter: LoginRateLimiter,
     first_user_role: String,
     default_role: String,
+    auto_admin_first_user: bool,
 }
 
 impl<DB, P, R, A> AuthService<DB, P, R, A>
@@ -321,11 +322,17 @@ where
             rate_limiter: LoginRateLimiter::new(5, 300, 900),
             first_user_role: first_user_role.to_string(),
             default_role: default_role.to_string(),
+            auto_admin_first_user: false,
         }
     }
 
     pub fn with_rate_limiter(mut self, limiter: LoginRateLimiter) -> Self {
         self.rate_limiter = limiter;
+        self
+    }
+
+    pub fn with_auto_admin_first_user(mut self, enabled: bool) -> Self {
+        self.auto_admin_first_user = enabled;
         self
     }
 
@@ -377,7 +384,7 @@ where
 
         self.db.create_user(&user).await?;
 
-        let is_first = self.db.count_users().await? <= 1;
+        let is_first = self.auto_admin_first_user && self.db.count_users().await? <= 1;
         let role_name = if is_first {
             &self.first_user_role
         } else {

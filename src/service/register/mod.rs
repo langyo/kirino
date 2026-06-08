@@ -43,7 +43,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_first_user_is_admin() {
-        let auth = make_auth();
+        let db = InMemoryUserDatabase::new();
+        let engine = build_default_engine();
+        let auth = AuthService::new(db, "test-secret", 24, engine, "admin", "viewer")
+            .with_auto_admin_first_user(true);
 
         auth.register("admin", "Password123!", None).await.unwrap();
         assert!(
@@ -52,6 +55,23 @@ mod tests {
                 &KirinoPermission::SystemWrite,
             )
             .await
+        );
+    }
+
+    #[tokio::test]
+    async fn test_first_user_is_not_admin_by_default() {
+        let db = InMemoryUserDatabase::new();
+        let engine = build_default_engine();
+        let auth = AuthService::new(db, "test-secret", 24, engine, "admin", "viewer");
+
+        auth.register("first", "Password123!", None).await.unwrap();
+        assert!(
+            !auth
+                .check_permission(
+                    &auth.login("first", "Password123!").await.unwrap().user_id,
+                    &KirinoPermission::SystemWrite,
+                )
+                .await
         );
     }
 
