@@ -64,6 +64,7 @@ where
         }
     }
 
+    #[must_use]
     pub fn with_constraint_store(mut self, store: impl ConstraintStore + 'static) -> Self {
         self.constraint_store = Some(Shared::from_arc_unsized(Arc::new(store)));
         self
@@ -71,6 +72,13 @@ where
 
     pub fn assignment_store(&self) -> Shared<dyn AssignmentStore<S, P>> {
         self.assignment_store.clone()
+    }
+
+    pub async fn cleanup_expired(&self) -> usize {
+        let mut sessions = self.sessions.write().await;
+        let before = sessions.len();
+        sessions.retain(|_, session| !session.is_expired());
+        before - sessions.len()
     }
 
     async fn validate_dsd(&self, roles: &HashSet<String>) -> anyhow::Result<()> {
@@ -135,8 +143,7 @@ where
         let assigned = self.assignment_store.roles_of(&session.subject).await?;
         if !assigned.contains(&role_name.to_string()) {
             return Err(anyhow::anyhow!(
-                "role '{}' not assigned to subject",
-                role_name
+                "role '{role_name}' not assigned to subject"
             ));
         }
 

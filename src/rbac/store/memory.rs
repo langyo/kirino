@@ -1,8 +1,8 @@
 use std::{
     collections::{HashMap, HashSet},
     marker::PhantomData,
-    sync::RwLock,
 };
+use tokio::sync::RwLock;
 
 use async_trait::async_trait;
 
@@ -24,6 +24,7 @@ where
     S: Subject,
     P: Permission,
 {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             role_assignments: RwLock::new(HashMap::new()),
@@ -52,7 +53,7 @@ where
 {
     async fn assign_role(&self, subject: &S, role_name: &str) -> anyhow::Result<()> {
         let key = subject.subject_id().to_string();
-        let mut assignments = self.role_assignments.write().unwrap();
+        let mut assignments = self.role_assignments.write().await;
         let roles = assignments.entry(key).or_default();
         if !roles.contains(&role_name.to_string()) {
             roles.push(role_name.to_string());
@@ -62,7 +63,7 @@ where
 
     async fn revoke_role(&self, subject: &S, role_name: &str) -> anyhow::Result<()> {
         let key = subject.subject_id().to_string();
-        let mut assignments = self.role_assignments.write().unwrap();
+        let mut assignments = self.role_assignments.write().await;
         if let Some(roles) = assignments.get_mut(&key) {
             roles.retain(|r| r != role_name);
         }
@@ -71,12 +72,12 @@ where
 
     async fn roles_of(&self, subject: &S) -> anyhow::Result<Vec<String>> {
         let key = subject.subject_id().to_string();
-        let assignments = self.role_assignments.read().unwrap();
+        let assignments = self.role_assignments.read().await;
         Ok(assignments.get(&key).cloned().unwrap_or_default())
     }
 
     async fn subjects_with_role(&self, role_name: &str) -> anyhow::Result<Vec<String>> {
-        let assignments = self.role_assignments.read().unwrap();
+        let assignments = self.role_assignments.read().await;
         let subjects: Vec<String> = assignments
             .iter()
             .filter(|(_, roles)| roles.iter().any(|r| r == role_name))
@@ -87,26 +88,26 @@ where
 
     async fn extra_permissions(&self, subject: &S) -> anyhow::Result<HashSet<P>> {
         let key = subject.subject_id().to_string();
-        let perms = self.extra_perms.read().unwrap();
+        let perms = self.extra_perms.read().await;
         Ok(perms.get(&key).cloned().unwrap_or_default())
     }
 
     async fn set_extra_permissions(&self, subject: &S, perms: HashSet<P>) -> anyhow::Result<()> {
         let key = subject.subject_id().to_string();
-        let mut extra = self.extra_perms.write().unwrap();
+        let mut extra = self.extra_perms.write().await;
         extra.insert(key, perms);
         Ok(())
     }
 
     async fn denied_permissions(&self, subject: &S) -> anyhow::Result<HashSet<P>> {
         let key = subject.subject_id().to_string();
-        let perms = self.denied_perms.read().unwrap();
+        let perms = self.denied_perms.read().await;
         Ok(perms.get(&key).cloned().unwrap_or_default())
     }
 
     async fn set_denied_permissions(&self, subject: &S, perms: HashSet<P>) -> anyhow::Result<()> {
         let key = subject.subject_id().to_string();
-        let mut denied = self.denied_perms.write().unwrap();
+        let mut denied = self.denied_perms.write().await;
         denied.insert(key, perms);
         Ok(())
     }
@@ -117,6 +118,7 @@ pub struct InMemoryRoleStore<P: Permission> {
 }
 
 impl<P: Permission> InMemoryRoleStore<P> {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             roles: RwLock::new(HashMap::new()),
@@ -133,23 +135,23 @@ impl<P: Permission> Default for InMemoryRoleStore<P> {
 #[async_trait]
 impl<P: Permission> RoleStore<P> for InMemoryRoleStore<P> {
     async fn create_role(&self, role_name: &str, permissions: HashSet<P>) -> anyhow::Result<()> {
-        let mut roles = self.roles.write().unwrap();
+        let mut roles = self.roles.write().await;
         roles.insert(role_name.to_string(), permissions);
         Ok(())
     }
 
     async fn delete_role(&self, role_name: &str) -> anyhow::Result<bool> {
-        let mut roles = self.roles.write().unwrap();
+        let mut roles = self.roles.write().await;
         Ok(roles.remove(role_name).is_some())
     }
 
     async fn get_role_permissions(&self, role_name: &str) -> anyhow::Result<Option<HashSet<P>>> {
-        let roles = self.roles.read().unwrap();
+        let roles = self.roles.read().await;
         Ok(roles.get(role_name).cloned())
     }
 
     async fn list_roles(&self) -> anyhow::Result<Vec<String>> {
-        let roles = self.roles.read().unwrap();
+        let roles = self.roles.read().await;
         Ok(roles.keys().cloned().collect())
     }
 }
