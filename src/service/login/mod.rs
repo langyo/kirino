@@ -352,7 +352,7 @@ where
         &self,
         token: &str,
     ) -> Result<crate::auth::credential::basic::Claims> {
-        self.jwt.verify(token)
+        self.jwt.verify_with_revocation(token).await
     }
 
     pub async fn check_permission(&self, user_id: &str, permission: &P) -> bool {
@@ -400,6 +400,7 @@ where
         }
 
         let new_hash = hash_password(new_password)?;
+        self.jwt.revoke_all_for_user(user_id).await;
         self.db.update_password(&uid, &new_hash).await
     }
 
@@ -409,6 +410,7 @@ where
 
     pub async fn delete_user(&self, user_id: &str) -> Result<bool> {
         let uid = Uuid::parse_str(user_id).map_err(|_| anyhow!("invalid user_id"))?;
+        self.jwt.revoke_all_for_user(user_id).await;
         self.db.delete_user(&uid).await
     }
 }
