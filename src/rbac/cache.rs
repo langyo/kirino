@@ -4,7 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use tokio::sync::RwLock;
+use std::sync::RwLock;
 
 use super::traits::{Permission, Subject};
 
@@ -59,17 +59,14 @@ where
             subject.subject_id().to_string(),
             permission.name().to_string(),
         );
-        let cache = self.cache.try_read();
-        match cache {
-            Ok(cache) => cache.get(&key).and_then(|entry| {
-                if Instant::now() < entry.expires_at {
-                    Some(entry.granted)
-                } else {
-                    None
-                }
-            }),
-            Err(_) => None,
-        }
+        let cache = self.cache.read().unwrap();
+        cache.get(&key).and_then(|entry| {
+            if Instant::now() < entry.expires_at {
+                Some(entry.granted)
+            } else {
+                None
+            }
+        })
     }
 
     fn set(&self, subject: &S, permission: &P, granted: bool) {
@@ -77,28 +74,25 @@ where
             subject.subject_id().to_string(),
             permission.name().to_string(),
         );
-        if let Ok(mut cache) = self.cache.try_write() {
-            cache.insert(
-                key,
-                CacheEntry {
-                    granted,
-                    expires_at: Instant::now() + self.ttl,
-                },
-            );
-        }
+        let mut cache = self.cache.write().unwrap();
+        cache.insert(
+            key,
+            CacheEntry {
+                granted,
+                expires_at: Instant::now() + self.ttl,
+            },
+        );
     }
 
     fn invalidate_subject(&self, subject: &S) {
         let sid = subject.subject_id().to_string();
-        if let Ok(mut cache) = self.cache.try_write() {
-            cache.retain(|(s, _), _| s != &sid);
-        }
+        let mut cache = self.cache.write().unwrap();
+        cache.retain(|(s, _), _| s != &sid);
     }
 
     fn invalidate_all(&self) {
-        if let Ok(mut cache) = self.cache.try_write() {
-            cache.clear();
-        }
+        let mut cache = self.cache.write().unwrap();
+        cache.clear();
     }
 }
 
@@ -308,6 +302,37 @@ mod tests {
         assert_eq!(cache.get(&s1, &p1), None);
         assert_eq!(cache.get(&s1, &p2), None);
         assert_eq!(cache.get(&s2, &p1), None);
+    }
+
+    #[test]
+    fn test_cache_concurrent_access_no_deadlock() {
+        let cache = std::sync::Arc::new(TtlPermissionCache::new(Duration::from_secs(300)));
+        let subject = std::sync::Arc::new(TestSubject {
+            id: "user1".to_string(),
+        });
+        let perm = std::sync::Arc::new(TestPerm {
+            name: "read".to_string(),
+        });
+
+        let mut handles = Vec::new();
+        for i in 0..10 {
+            let c = std::sync::Arc::clone(&cache);
+            let s = std::sync::Arc::clone(&subject);
+            let p = std::sync::Arc::clone(&perm);
+            handles.push(std::thread::spawn(move || {
+                for _ in 0..100 {
+                    c.set(&*s, &*p, true);
+                    let _ = c.get(&*s, &*p);
+                }
+                format!("thread-{i} done")
+            }));
+        }
+
+        for h in handles {
+            h.join().expect("thread panicked");
+        }
+
+        assert_eq!(cache.get(&*subject, &*perm), Some(true));
     }
 
     #[test]
