@@ -103,38 +103,13 @@ where
 mod tests {
     use super::*;
     use std::sync::Arc;
-
-    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-    struct TestPerm {
-        name: String,
-    }
-
-    impl Permission for TestPerm {
-        fn name(&self) -> &str {
-            &self.name
-        }
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-    struct TestSubject {
-        id: String,
-    }
-
-    impl Subject for TestSubject {
-        fn subject_id(&self) -> &str {
-            &self.id
-        }
-    }
+    use crate::test_utils::{TestPerm, TestSubject};
 
     #[tokio::test]
     async fn test_cache_set_and_get() {
         let cache = TtlPermissionCache::new(Duration::from_secs(300));
-        let subject = TestSubject {
-            id: "user1".to_string(),
-        };
-        let perm = TestPerm {
-            name: "read".to_string(),
-        };
+        let subject = TestSubject("user1".to_string());
+        let perm = TestPerm::Read;
 
         assert_eq!(cache.get(&subject, &perm).await, None);
 
@@ -145,12 +120,8 @@ mod tests {
     #[tokio::test]
     async fn test_cache_ttl_expiry() {
         let cache = TtlPermissionCache::new(Duration::from_millis(10));
-        let subject = TestSubject {
-            id: "user1".to_string(),
-        };
-        let perm = TestPerm {
-            name: "read".to_string(),
-        };
+        let subject = TestSubject("user1".to_string());
+        let perm = TestPerm::Read;
 
         cache.set(&subject, &perm, true).await;
         assert_eq!(cache.get(&subject, &perm).await, Some(true));
@@ -162,15 +133,9 @@ mod tests {
     #[tokio::test]
     async fn test_cache_invalidate_subject() {
         let cache = TtlPermissionCache::new(Duration::from_secs(300));
-        let subject1 = TestSubject {
-            id: "user1".to_string(),
-        };
-        let subject2 = TestSubject {
-            id: "user2".to_string(),
-        };
-        let perm = TestPerm {
-            name: "read".to_string(),
-        };
+        let subject1 = TestSubject("user1".to_string());
+        let subject2 = TestSubject("user2".to_string());
+        let perm = TestPerm::Read;
 
         cache.set(&subject1, &perm, true).await;
         cache.set(&subject2, &perm, false).await;
@@ -183,15 +148,9 @@ mod tests {
     #[tokio::test]
     async fn test_cache_invalidate_all() {
         let cache = TtlPermissionCache::new(Duration::from_secs(300));
-        let subject = TestSubject {
-            id: "user1".to_string(),
-        };
-        let perm1 = TestPerm {
-            name: "read".to_string(),
-        };
-        let perm2 = TestPerm {
-            name: "write".to_string(),
-        };
+        let subject = TestSubject("user1".to_string());
+        let perm1 = TestPerm::Read;
+        let perm2 = TestPerm::Write;
 
         cache.set(&subject, &perm1, true).await;
         cache.set(&subject, &perm2, false).await;
@@ -203,12 +162,8 @@ mod tests {
     #[tokio::test]
     async fn test_cache_overwrite() {
         let cache = TtlPermissionCache::new(Duration::from_secs(300));
-        let subject = TestSubject {
-            id: "user1".to_string(),
-        };
-        let perm = TestPerm {
-            name: "read".to_string(),
-        };
+        let subject = TestSubject("user1".to_string());
+        let perm = TestPerm::Read;
 
         cache.set(&subject, &perm, true).await;
         assert_eq!(cache.get(&subject, &perm).await, Some(true));
@@ -220,15 +175,9 @@ mod tests {
     #[tokio::test]
     async fn test_cache_multiple_permissions() {
         let cache = TtlPermissionCache::new(Duration::from_secs(300));
-        let subject = TestSubject {
-            id: "user1".to_string(),
-        };
-        let read_perm = TestPerm {
-            name: "read".to_string(),
-        };
-        let write_perm = TestPerm {
-            name: "write".to_string(),
-        };
+        let subject = TestSubject("user1".to_string());
+        let read_perm = TestPerm::Read;
+        let write_perm = TestPerm::Write;
 
         cache.set(&subject, &read_perm, true).await;
         cache.set(&subject, &write_perm, false).await;
@@ -240,11 +189,9 @@ mod tests {
     #[tokio::test]
     async fn test_cache_different_subjects_isolated() {
         let cache = TtlPermissionCache::new(Duration::from_secs(300));
-        let s1 = TestSubject { id: "user1".into() };
-        let s2 = TestSubject { id: "user2".into() };
-        let perm = TestPerm {
-            name: "read".into(),
-        };
+        let s1 = TestSubject("user1".into());
+        let s2 = TestSubject("user2".into());
+        let perm = TestPerm::Read;
 
         cache.set(&s1, &perm, true).await;
         cache.set(&s2, &perm, false).await;
@@ -256,12 +203,10 @@ mod tests {
     #[tokio::test]
     async fn test_cache_invalidate_one_subject_preserves_others() {
         let cache = TtlPermissionCache::new(Duration::from_secs(300));
-        let s1 = TestSubject { id: "u1".into() };
-        let s2 = TestSubject { id: "u2".into() };
-        let s3 = TestSubject { id: "u3".into() };
-        let perm = TestPerm {
-            name: "read".into(),
-        };
+        let s1 = TestSubject("u1".into());
+        let s2 = TestSubject("u2".into());
+        let s3 = TestSubject("u3".into());
+        let perm = TestPerm::Read;
 
         cache.set(&s1, &perm, true).await;
         cache.set(&s2, &perm, false).await;
@@ -277,10 +222,8 @@ mod tests {
     #[tokio::test]
     async fn test_cache_get_nonexistent_perm() {
         let cache = TtlPermissionCache::new(Duration::from_secs(300));
-        let subject = TestSubject { id: "user1".into() };
-        let perm = TestPerm {
-            name: "read".into(),
-        };
+        let subject = TestSubject("user1".into());
+        let perm = TestPerm::Read;
 
         assert_eq!(cache.get(&subject, &perm).await, None);
     }
@@ -288,14 +231,10 @@ mod tests {
     #[tokio::test]
     async fn test_cache_invalidate_all_drops_everything() {
         let cache = TtlPermissionCache::new(Duration::from_secs(300));
-        let s1 = TestSubject { id: "u1".into() };
-        let s2 = TestSubject { id: "u2".into() };
-        let p1 = TestPerm {
-            name: "read".into(),
-        };
-        let p2 = TestPerm {
-            name: "write".into(),
-        };
+        let s1 = TestSubject("u1".into());
+        let s2 = TestSubject("u2".into());
+        let p1 = TestPerm::Read;
+        let p2 = TestPerm::Write;
 
         cache.set(&s1, &p1, true).await;
         cache.set(&s1, &p2, false).await;
@@ -311,12 +250,8 @@ mod tests {
     #[tokio::test]
     async fn test_cache_concurrent_access_no_deadlock() {
         let cache = Arc::new(TtlPermissionCache::new(Duration::from_secs(300)));
-        let subject = Arc::new(TestSubject {
-            id: "user1".to_string(),
-        });
-        let perm = Arc::new(TestPerm {
-            name: "read".to_string(),
-        });
+        let subject = Arc::new(TestSubject("user1".to_string()));
+        let perm = Arc::new(TestPerm::Read);
 
         let mut handles = Vec::new();
         for i in 0..10 {
@@ -342,11 +277,9 @@ mod tests {
     #[tokio::test]
     async fn test_cache_invalidate_nonexistent_subject_is_noop() {
         let cache = TtlPermissionCache::new(Duration::from_secs(300));
-        let s1 = TestSubject { id: "u1".into() };
-        let s2 = TestSubject { id: "u2".into() };
-        let perm = TestPerm {
-            name: "read".into(),
-        };
+        let s1 = TestSubject("u1".into());
+        let s2 = TestSubject("u2".into());
+        let perm = TestPerm::Read;
 
         cache.set(&s1, &perm, true).await;
         cache.invalidate_subject(&s2).await;

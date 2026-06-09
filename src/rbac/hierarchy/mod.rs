@@ -124,25 +124,7 @@ where
 mod tests {
     use super::*;
     use crate::rbac::store::registry::StaticRoleRegistry;
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-    enum TestPerm {
-        Read,
-        Write,
-        Delete,
-        Admin,
-    }
-
-    impl Permission for TestPerm {
-        fn name(&self) -> &str {
-            match self {
-                TestPerm::Read => "read",
-                TestPerm::Write => "write",
-                TestPerm::Delete => "delete",
-                TestPerm::Admin => "admin",
-            }
-        }
-    }
+    use crate::test_utils::TestPerm;
 
     fn build_hierarchy() -> StaticRoleRegistry<HierarchyNode<TestPerm>, TestPerm> {
         let mut reg = StaticRoleRegistry::new();

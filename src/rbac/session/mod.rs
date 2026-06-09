@@ -212,6 +212,7 @@ mod tests {
     use super::*;
     use crate::rbac::store::memory::InMemoryAssignmentStore;
     use crate::rbac::subject::StringSubject;
+    use crate::test_utils::TestPerm;
 
     #[cfg(feature = "rbac-constraints")]
     use crate::rbac::constraints::policies::DsdPolicy;
@@ -226,22 +227,6 @@ mod tests {
         store: InMemoryAssignmentStore<StringSubject, TestPerm>,
     ) -> InMemorySessionManager<StringSubject, TestPerm> {
         InMemorySessionManager::new(store)
-    }
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-    #[allow(dead_code)]
-    enum TestPerm {
-        Read,
-        Write,
-    }
-
-    impl Permission for TestPerm {
-        fn name(&self) -> &str {
-            match self {
-                TestPerm::Read => "read",
-                TestPerm::Write => "write",
-            }
-        }
     }
 
     #[tokio::test]

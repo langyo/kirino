@@ -276,34 +276,7 @@ mod tests {
     use crate::error::{KirinoError, KirinoResult};
     use crate::rbac::store::memory::InMemoryAssignmentStore;
     use crate::rbac::store::registry::{SimpleRole, StaticPermissionRegistry, StaticRoleRegistry};
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-    enum TestPerm {
-        Read,
-        Write,
-        Delete,
-        Admin,
-    }
-
-    impl Permission for TestPerm {
-        fn name(&self) -> &str {
-            match self {
-                TestPerm::Read => "read",
-                TestPerm::Write => "write",
-                TestPerm::Delete => "delete",
-                TestPerm::Admin => "admin",
-            }
-        }
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-    struct TestSubject(String);
-
-    impl Subject for TestSubject {
-        fn subject_id(&self) -> &str {
-            &self.0
-        }
-    }
+    use crate::test_utils::{TestPerm, TestSubject};
 
     fn build_engine() -> RbacEngine<
         TestSubject,

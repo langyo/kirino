@@ -123,27 +123,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-    enum TestPerm {
-        Read,
-        Write,
-        Delete,
-    }
-
-    impl Permission for TestPerm {
-        fn name(&self) -> &str {
-            match self {
-                TestPerm::Read => "read",
-                TestPerm::Write => "write",
-                TestPerm::Delete => "delete",
-            }
-        }
-
-        fn domain(&self) -> &'static str {
-            "test"
-        }
-    }
+    use crate::test_utils::TestPerm;
 
     #[test]
     fn test_simple_role() {
