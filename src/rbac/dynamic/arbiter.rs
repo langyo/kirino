@@ -150,29 +150,7 @@ impl AuthorizationArbiter {
         }
         drop(frozen);
 
-        let mut risk = self.risk_score(request).await;
-        {
-            let scope_guard = self.domain_scope.read().await;
-            if let Some(scope) = scope_guard.as_ref() {
-                let floor = scope.current_task_domain.trust_floor;
-                if floor > 0.0 {
-                    let trust = self
-                        .trust_store
-                        .get(&request.delegator.id)
-                        .await
-                        .ok()
-                        .flatten()
-                        .unwrap_or_default();
-                    let weighted = trust.weighted();
-                    if weighted < floor {
-                        let penalty = (floor - weighted).clamp(0.0, 1.0);
-                        risk.value = (risk.value + penalty).min(1.0);
-                        risk.sub_scores.domain_mismatch += penalty;
-                    }
-                }
-            }
-        }
-
+        let risk = self.risk_score(request).await;
         let policy = self.policy.read().await;
         let level = policy.map_to_level(risk.value);
         let strategy = policy.strategy_for(level);
@@ -239,16 +217,29 @@ impl AuthorizationArbiter {
             .ok()
             .flatten()
             .unwrap_or_default();
-        let trust_penalty = (1.0 - trust.weighted()).clamp(0.0, 1.0);
+        let mut trust_penalty = (1.0 - trust.weighted()).clamp(0.0, 1.0);
 
         let sensitivity = request.category.base_weight();
 
         let domain_mismatch = {
             let scope_guard = self.domain_scope.read().await;
             match scope_guard.as_ref() {
-                Some(scope) => scope
-                    .evaluate(&request.category, request.resource_path.as_deref())
-                    .excess_weight(),
+                Some(scope) => {
+                    let mism = scope
+                        .evaluate(&request.category, request.resource_path.as_deref())
+                        .excess_weight();
+
+                    let floor = scope.current_task_domain.trust_floor;
+                    if floor > 0.0 {
+                        let weighted = trust.weighted();
+                        if weighted < floor {
+                            let penalty = (floor - weighted).clamp(0.0, 1.0);
+                            trust_penalty = (trust_penalty + penalty).min(1.0);
+                        }
+                    }
+
+                    mism
+                }
                 None => 0.0,
             }
         };
