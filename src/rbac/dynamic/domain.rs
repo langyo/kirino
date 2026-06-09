@@ -66,8 +66,10 @@ impl DomainScope {
             .current_task_domain
             .allowed_action_categories
             .contains(category);
-        let resource_ok =
-            resource_path.is_none_or(|p| self.current_task_domain.is_resource_allowed(p));
+        let resource_ok = match resource_path {
+            Some(p) => self.current_task_domain.is_resource_allowed(p),
+            None => true,
+        };
 
         if in_domain && resource_ok {
             return DomainMatch::InDomain;

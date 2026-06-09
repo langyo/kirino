@@ -161,7 +161,11 @@ impl TrustDecayWorker {
     }
 
     pub fn hourly(store: Arc<dyn TrustScoreStore>) -> Self {
-        Self::new(store, Duration::from_hours(1), Duration::from_hours(1))
+        Self::new(
+            store,
+            Duration::from_secs(3600),
+            Duration::from_secs(3600),
+        )
     }
 
     #[allow(clippy::missing_errors_doc)]

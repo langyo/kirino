@@ -43,6 +43,11 @@ pub mod prelude {
         store::{
             InMemoryAssignmentStore, InMemoryRoleStore, SimpleRole, StaticPermissionRegistry,
             StaticRoleRegistry,
+            persistence::{
+                AssignmentRow, AuditRow, ConstraintRow, PersistentAssignmentStore,
+                PersistentAuditStore, PersistentConstraintStore, PersistentRoleStore,
+                PersistentStore, PersistentTrustStore, RoleRow,
+            },
         },
         subject::StringSubject,
         traits::{

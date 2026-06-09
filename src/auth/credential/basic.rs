@@ -11,6 +11,10 @@ pub struct Claims {
     pub sub: String,
     pub user_id: String,
     pub roles: Vec<String>,
+    #[serde(default)]
+    pub permissions: Vec<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
     pub iat: i64,
     pub exp: i64,
 }
@@ -36,11 +40,25 @@ impl JwtManager {
 
     #[allow(clippy::missing_errors_doc)]
     pub fn issue(&self, user_id: &str, username: &str, roles: Vec<String>) -> Result<String> {
+        self.issue_with_options(user_id, username, roles, vec![], None)
+    }
+
+    #[allow(clippy::missing_errors_doc)]
+    pub fn issue_with_options(
+        &self,
+        user_id: &str,
+        username: &str,
+        roles: Vec<String>,
+        permissions: Vec<String>,
+        session_id: Option<String>,
+    ) -> Result<String> {
         let now = Utc::now();
         let claims = Claims {
             sub: username.to_string(),
             user_id: user_id.to_string(),
             roles,
+            permissions,
+            session_id,
             iat: now.timestamp(),
             exp: (now + Duration::hours(self.expiration_hours)).timestamp(),
         };
@@ -130,5 +148,31 @@ mod tests {
         mgr.revoke_all_for_user("user-a").await;
         assert!(mgr.verify_with_revocation(&token_a).await.is_err());
         assert!(mgr.verify_with_revocation(&token_b).await.is_ok());
+    }
+
+    #[test]
+    fn test_issue_with_permissions_and_session() {
+        let mgr = JwtManager::new("test-secret", 24);
+        let token = mgr
+            .issue_with_options(
+                "user-1",
+                "alice",
+                vec!["admin".into()],
+                vec!["read".into(), "write".into()],
+                Some("sess-123".into()),
+            )
+            .unwrap();
+        let claims = mgr.verify(&token).unwrap();
+        assert_eq!(claims.permissions, vec!["read", "write"]);
+        assert_eq!(claims.session_id, Some("sess-123".to_string()));
+    }
+
+    #[test]
+    fn test_backward_compat_old_token_deserialize() {
+        let mgr = JwtManager::new("test-secret", 24);
+        let token = mgr.issue("user-1", "alice", vec!["admin".into()]).unwrap();
+        let claims = mgr.verify(&token).unwrap();
+        assert!(claims.permissions.is_empty());
+        assert!(claims.session_id.is_none());
     }
 }

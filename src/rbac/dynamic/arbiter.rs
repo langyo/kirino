@@ -150,9 +150,7 @@ impl AuthorizationArbiter {
         }
         drop(frozen);
 
-        let risk = self.risk_score(request).await;
-
-        let mut risk = risk;
+        let mut risk = self.risk_score(request).await;
         {
             let scope_guard = self.domain_scope.read().await;
             if let Some(scope) = scope_guard.as_ref() {

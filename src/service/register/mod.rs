@@ -1,4 +1,4 @@
-#[cfg(test)]
+#[cfg(all(test, feature = "auth-password", feature = "auth-jwt"))]
 mod tests {
 
     use crate::{

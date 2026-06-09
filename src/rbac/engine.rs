@@ -61,7 +61,7 @@ where
             permission_registry: Shared::from_arc_unsized(Arc::new(permission_registry)),
             assignment_store: Shared::new(assignment_store),
             cache: Shared::from_arc_unsized(Arc::new(TtlPermissionCache::new(
-                Duration::from_mins(5),
+                Duration::from_secs(300),
             ))),
             _phantom: PhantomData,
         }

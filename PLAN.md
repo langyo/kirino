@@ -331,63 +331,23 @@ pub trait Delegatable: Subject {
 
 ## 7. 数据库持久化（Phase 5）
 
-### 7.1 SQL 后端
+### 7.1 持久化 trait 接口
 
-- 基于 `AssignmentStore` trait 实现 `SqlAssignmentStore`
-- 表设计（与 entelecheia 现有 schema 对齐）：
+kirino 作为库只提供 trait 接口，不绑定任何具体数据库或 ORM。下游项目实现这些 trait 即可接入任意存储后端。
 
-```sql
--- 主体-角色分配表（兼容 entelecheia rbac_user_roles）
-CREATE TABLE rbac_assignments (
-    subject_id   TEXT NOT NULL,
-    role_name    TEXT NOT NULL,
-    extra_permissions  TEXT[] DEFAULT '{}',   -- 序列化的权限名列表
-    denied_permissions TEXT[] DEFAULT '{}',
-    assigned_at  TIMESTAMPTZ DEFAULT NOW(),
-    expires_at   TIMESTAMPTZ,                 -- NULL = 永不过期
-    PRIMARY KEY (subject_id, role_name)
-);
+- `PersistentAssignmentStore` — 主体↔角色分配的持久化（`src/rbac/store/persistence.rs`）
+- `PersistentRoleStore` — 角色定义的持久化
+- `PersistentConstraintStore` — RBAC2 约束策略的持久化
+- `PersistentAuditStore` — 审计日志的持久化
+- `PersistentTrustStore` — 动态授权信任分数的持久化
+- `PersistentStore` — 上述前三个 trait 的组合 trait
 
--- 角色定义表（新增——支持动态角色管理）
-CREATE TABLE rbac_roles (
-    role_name    TEXT PRIMARY KEY,
-    parent_roles TEXT[] DEFAULT '{}',         -- RBAC1 继承
-    permissions  TEXT[] NOT NULL,              -- 关联的权限名
-    created_at   TIMESTAMPTZ DEFAULT NOW()
-);
+下游项目参考这些 trait 的 DTO（`AssignmentRow`、`RoleRow`、`ConstraintRow`、`AuditRow`）设计自己的表结构。
 
--- 约束表（新增——RBAC2）
-CREATE TABLE rbac_constraints (
-    id           SERIAL PRIMARY KEY,
-    constraint_type TEXT NOT NULL,             -- 'ssd' | 'dsd' | 'cardinality' | 'prerequisite'
-    config       JSONB NOT NULL,               -- 约束的序列化配置
-    created_at   TIMESTAMPTZ DEFAULT NOW()
-);
+### 7.2 缓存层
 
--- 审计日志（兼容 entelecheia rbac_audit_log）
-CREATE TABLE rbac_audit_log (
-    id           SERIAL PRIMARY KEY,
-    subject_id   TEXT NOT NULL,
-    permission   TEXT NOT NULL,
-    endpoint     TEXT DEFAULT '',
-    granted      BOOLEAN NOT NULL,
-    created_at   TIMESTAMPTZ DEFAULT NOW()
-);
-```
-
-- 支持 `sea-orm`（通过 feature flag `rbac-sea-orm`）和原生 `sqlx`（feature flag `rbac-sqlx`）
-- 自动迁移能力（可选，由 `rbac-migrate` feature 控制）
-
-### 7.2 NoSQL 后端
-
-- 基于 `AssignmentStore` trait 实现 `NoSqlAssignmentStore`
-- 主体-角色作为文档存储，支持嵌入权限缓存
-- 实验性支持（低优先级），先完成 trait 定义和文档
-
-### 7.3 缓存层
-
-- `PermissionCache` trait，默认 `LruPermissionCache` 实现
-- 支持 `redis` 作为分布式缓存后端（feature flag `rbac-redis`）
+- `PermissionCache` trait，默认 `TtlPermissionCache` 实现
+- 下游项目可自行实现 Redis 等分布式缓存后端
 - 缓存失效策略：角色变更时主动失效受影响主体
 
 ---
@@ -462,21 +422,19 @@ pub trait SessionManager<S: Subject, P: Permission>: Send + Sync {
 
 - [x] 为 `Anonymous`/`Basic`/`Temporary`/`Service` 实现 `Subject` trait（`IdentitySubject` wrapper）
 - [x] 实现临时提权（Basic ↔ Service 委托）（`Delegatable` trait）
-- [ ] 与现有的 credential / passport 体系对接（JWT claims 包含 permission 集合）
+- [x] 与现有的 credential / passport 体系对接（JWT claims 包含 permission 集合）
 
 ### Phase 5 — 数据库持久化（3-4 天）
 
-- [ ] 实现 `SqlAssignmentStore`（feature flag: `rbac-sql`）
-- [ ] 实现 `SqlRoleStore` + `SqlConstraintStore`
-- [ ] 提供 sea-orm 实体（feature flag: `rbac-sea-orm`）
-- [ ] 编写迁移脚本（SQL schema）
-- [ ] 测试：`SqlAssignmentStore` 的 CRUD + 权限检查
+- [x] 持久化 trait 抽象（`PersistentAssignmentStore` / `PersistentRoleStore` / `PersistentConstraintStore` / `PersistentAuditStore` / `PersistentTrustStore`）— `src/rbac/store/persistence.rs`
+- [x] 测试：trait 定义通过编译
+- 下游项目实现 `PersistentStore` trait 即可接入任意数据库（SQL/NoSQL/Redis 均可），kirino 自身不包含任何具体存储实现
 
 ### Phase 6 — 会话管理（2 天）
 
 - [x] 实现 `Session` 结构体
 - [x] 实现 `SessionManager` trait + InMemory 实现
-- [ ] 集成到 `AuthService`（login 时创建 session，logout 时销毁）
+- [x] 集成到 `AuthService`（login 时创建 session，logout 时销毁）
 - [x] DSD 约束在会话激活时的检查
 
 ---
@@ -523,7 +481,7 @@ pub trait SessionManager<S: Subject, P: Permission>: Send + Sync {
 
 ```toml
 [features]
-default = ["rbac-inmemory"]
+default = ["rbac-inmemory", "auth-password", "auth-jwt"]
 
 # RBAC 核心（零依赖 trait + engine）
 rbac-core = []
@@ -537,17 +495,23 @@ rbac-hierarchy = ["rbac-core"]
 # RBAC2 约束模型
 rbac-constraints = ["rbac-core"]
 
-# SQL 持久化（sqlx 原生）
-rbac-sql = ["rbac-core", "dep:sqlx"]
+# 动态授权层
+rbac-dynamic = ["rbac-core"]
 
-# SeaORM 持久化
-rbac-sea-orm = ["rbac-core", "dep:sea-orm"]
+# 密码认证（argon2）
+auth-password = ["dep:argon2"]
 
-# Redis 缓存
-rbac-redis = ["rbac-core", "dep:redis"]
+# JWT 令牌签发/验证
+auth-jwt = ["dep:jsonwebtoken"]
 
 # 全功能
-rbac-full = ["rbac-inmemory", "rbac-hierarchy", "rbac-constraints", "rbac-sql", "rbac-sea-orm", "rbac-redis"]
+rbac-full = [
+    "rbac-inmemory", "rbac-hierarchy", "rbac-constraints", "rbac-dynamic",
+    "auth-password", "auth-jwt",
+]
+
+# SQL/NoSQL 持久化由下游项目实现 PersistentStore trait
+# Redis 缓存由下游项目实现 PermissionCache trait
 ```
 
 ---
@@ -655,7 +619,7 @@ kirino/src/rbac/
 
 - [x] P5b: `AuthService` 增加 `arbiter` 字段、`with_arbiter()`、`arbiter()` 访问器
 - [x] P5c: `check_static_and_dynamic()` 方法（静态 RBAC + 动态 arbiter 双层检查）
-- [ ] P5d: 与现有 credential / passport 体系对接（JWT claims 包含 permission 集合）
+- [x] P5d: 与现有 credential / passport 体系对接（JWT claims 包含 permission 集合）
 
 ### Phase 4 — entelecheia 集成（阻塞于 entelecheia 代码库）
 

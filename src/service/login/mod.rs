@@ -9,11 +9,12 @@ use std::{
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
+#[cfg(feature = "auth-jwt")]
+use crate::auth::credential::basic::JwtManager;
+#[cfg(feature = "auth-password")]
+use crate::auth::passport::static_password::{hash_password, verify_password};
+
 use crate::{
-    auth::{
-        credential::basic::JwtManager,
-        passport::static_password::{hash_password, verify_password},
-    },
     models::identity::Identity,
     rbac::{
         dynamic::arbiter::AuthorizationArbiter,
@@ -46,8 +47,6 @@ const MAX_PASSWORD_LEN: usize = 128;
 const MIN_USERNAME_LEN: usize = 2;
 const MAX_USERNAME_LEN: usize = 64;
 
-/// # Errors
-/// Returns an error if the username is too short, too long, or contains invalid characters.
 pub fn validate_username(username: &str) -> Result<()> {
     let trimmed = username.trim();
     if trimmed.is_empty() || trimmed.len() < MIN_USERNAME_LEN {
@@ -71,8 +70,6 @@ pub fn validate_username(username: &str) -> Result<()> {
     Ok(())
 }
 
-/// # Errors
-/// Returns an error if the password is too short, too long, or does not meet complexity requirements.
 pub fn validate_password(password: &str) -> Result<()> {
     if password.len() < MIN_PASSWORD_LEN {
         return Err(anyhow!(
@@ -115,11 +112,6 @@ impl LoginRateLimiter {
         }
     }
 
-    /// # Errors
-    /// Returns an error if too many login attempts have been made within the rate limit window.
-    ///
-    /// # Panics
-    /// Panics if `window_secs + lockout_secs` overflows or is less than elapsed time (should never happen with valid config).
     pub async fn check(&self, key: &str) -> Result<()> {
         let mut entries = self.entries.write().await;
         let now = Instant::now();
@@ -296,8 +288,11 @@ pub struct LoginResult {
     pub username: String,
     pub display_name: Option<String>,
     pub roles: Vec<String>,
+    #[cfg(feature = "auth-jwt")]
+    pub session_id: Option<uuid::Uuid>,
 }
 
+#[cfg(all(feature = "auth-password", feature = "auth-jwt"))]
 pub struct AuthService<DB, P, R, A>
 where
     P: Permission,
@@ -314,6 +309,7 @@ where
     auto_admin_first_user: bool,
 }
 
+#[cfg(all(feature = "auth-password", feature = "auth-jwt"))]
 impl<DB, P, R, A> AuthService<DB, P, R, A>
 where
     DB: UserDatabase,
@@ -371,8 +367,6 @@ where
         self.engine.clone()
     }
 
-    /// # Errors
-    /// Returns an error if the username or password is invalid, or if the username already exists.
     pub async fn register(
         &self,
         username: &str,
@@ -420,8 +414,6 @@ where
         Ok(user.to_public())
     }
 
-    /// # Errors
-    /// Returns an error if rate limited, credentials are invalid, or token issuance fails.
     pub async fn login(&self, username: &str, password: &str) -> Result<LoginResult> {
         self.rate_limiter.check(username).await?;
 
@@ -452,7 +444,18 @@ where
             .await
             .unwrap_or_default();
 
-        let token = self.jwt.issue(&user_id, &user.username, roles.clone())?;
+        let token = self.jwt.issue_with_options(
+            &user_id,
+            &user.username,
+            roles.clone(),
+            self.engine
+                .effective_permissions(&subject)
+                .await
+                .into_iter()
+                .map(|p| p.name().to_string())
+                .collect(),
+            None,
+        )?;
 
         Ok(LoginResult {
             token,
@@ -460,11 +463,10 @@ where
             username: user.username.clone(),
             display_name: user.display_name.clone(),
             roles,
+            session_id: None,
         })
     }
 
-    /// # Errors
-    /// Returns an error if the token is invalid, expired, or has been revoked.
     pub async fn verify_token(
         &self,
         token: &str,
@@ -494,8 +496,6 @@ where
         true
     }
 
-    /// # Errors
-    /// Returns an error if the user ID is invalid, user is not found, old password is incorrect, or the new password is invalid.
     pub async fn change_password(
         &self,
         user_id: &str,
@@ -521,19 +521,68 @@ where
         self.db.update_password(&uid, &new_hash).await
     }
 
-    /// # Errors
-    /// Returns an error if the underlying database operation fails.
     pub async fn list_users(&self) -> Result<Vec<UserInfo>> {
         let users = self.db.list_users().await?;
         Ok(users.iter().map(UserRecord::to_public).collect())
     }
 
-    /// # Errors
-    /// Returns an error if the user ID is invalid or the underlying database operation fails.
     pub async fn delete_user(&self, user_id: &str) -> Result<bool> {
         let uid = Uuid::parse_str(user_id).map_err(|_| anyhow!("invalid user_id"))?;
         self.jwt.revoke_all_for_user(user_id).await;
         self.db.delete_user(&uid).await
+    }
+
+    pub async fn login_with_session<SM>(
+        &self,
+        username: &str,
+        password: &str,
+        session_mgr: &SM,
+        session_ttl: chrono::Duration,
+    ) -> Result<(LoginResult, crate::rbac::session::Session<StringSubject>)>
+    where
+        SM: crate::rbac::session::SessionManager<StringSubject>,
+    {
+        let result = self.login(username, password).await?;
+
+        let subject = StringSubject::new(&result.user_id);
+        let active_roles: HashSet<String> = result.roles.iter().cloned().collect();
+        let session = session_mgr
+            .create_session(&subject, active_roles, session_ttl)
+            .await?;
+
+        let session_id_str = session.id.to_string();
+        let subject_for_perms = StringSubject::new(&result.user_id);
+        let perm_names = self
+            .engine
+            .effective_permissions(&subject_for_perms)
+            .await
+            .into_iter()
+            .map(|p| p.name().to_string())
+            .collect();
+
+        let token = self.jwt.issue_with_options(
+            &result.user_id,
+            &result.username,
+            result.roles.clone(),
+            perm_names,
+            Some(session_id_str),
+        )?;
+
+        Ok((
+            LoginResult {
+                token,
+                session_id: Some(session.id),
+                ..result
+            },
+            session,
+        ))
+    }
+
+    pub async fn logout<SM>(&self, session_id: Uuid, session_mgr: &SM) -> Result<()>
+    where
+        SM: crate::rbac::session::SessionManager<StringSubject>,
+    {
+        session_mgr.destroy_session(session_id).await
     }
 }
 
