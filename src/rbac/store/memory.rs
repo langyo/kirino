@@ -161,22 +161,18 @@ impl<P: Permission> RoleStore<P> for InMemoryRoleStore<P> {
 mod tests {
     use super::*;
     use std::collections::HashSet;
+    use crate::test_utils::TestSubject;
 
+    // 不能使用共享的 TestPerm 枚举，因为本模块测试需要表达任意权限名，
+    // 例如 TestPerm("deploy")、TestPerm("system_write") 等动态字符串，
+    // 而共享的 TestPerm 是固定枚举变体（Read/Write/Delete/Admin）。
+    // 本模块验证的是存储层的通用 CRUD 行为，不应绑定到特定权限名。
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     struct TestPerm(&'static str);
 
     impl Permission for TestPerm {
         fn name(&self) -> &str {
             self.0
-        }
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-    struct TestSubject(String);
-
-    impl Subject for TestSubject {
-        fn subject_id(&self) -> &str {
-            &self.0
         }
     }
 
