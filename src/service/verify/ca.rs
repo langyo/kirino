@@ -38,7 +38,7 @@ impl CertificateAuthorityVerifier {
             .trim_end_matches("-----END CERTIFICATE-----")
             .trim();
 
-        let decoded = base64::decode(b64_body);
+        let decoded = base64::decode(b64_body)?;
         if decoded.len() < 32 {
             return Err(anyhow!("certificate data too short"));
         }

@@ -1,9 +1,11 @@
 use anyhow::Result;
 use rand::Rng;
 use std::{
-    cell::Cell,
     collections::HashMap,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     time::{Duration, Instant},
 };
 use tokio::sync::RwLock;
@@ -14,7 +16,7 @@ use crate::utils::constant_time_eq;
 
 pub struct OneTimeCredential {
     token: String,
-    used: Cell<bool>,
+    used: AtomicBool,
 }
 
 impl OneTimeCredential {
@@ -22,7 +24,7 @@ impl OneTimeCredential {
     pub fn new(token: &str) -> Self {
         Self {
             token: token.to_string(),
-            used: Cell::new(false),
+            used: AtomicBool::new(false),
         }
     }
 
@@ -31,7 +33,7 @@ impl OneTimeCredential {
         let token = Self::generate_token(32);
         Self {
             token,
-            used: Cell::new(false),
+            used: AtomicBool::new(false),
         }
     }
 
@@ -42,7 +44,7 @@ impl OneTimeCredential {
 
     #[must_use]
     pub fn is_used(&self) -> bool {
-        self.used.get()
+        self.used.load(Ordering::SeqCst)
     }
 
     fn generate_token(len: usize) -> String {
@@ -59,11 +61,11 @@ impl OneTimeCredential {
 
 impl super::Credential for OneTimeCredential {
     fn verify(&self, token: &str) -> Result<bool> {
-        if self.used.get() {
+        if self.used.load(Ordering::SeqCst) {
             return Ok(false);
         }
         if constant_time_eq(self.token.as_bytes(), token.as_bytes()) {
-            self.used.set(true);
+            self.used.store(true, Ordering::SeqCst);
             return Ok(true);
         }
         Ok(false)

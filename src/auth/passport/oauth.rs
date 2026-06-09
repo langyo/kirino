@@ -44,7 +44,7 @@ impl OAuthVerifier {
     fn verify_jwt_token(&self, token: &str) -> Result<OAuthClaims> {
         let parts: Vec<&str> = token.split('.').collect();
         let payload_b64 = parts.get(1).ok_or_else(|| anyhow!("malformed JWT"))?;
-        let payload_bytes = base64::decode_url_safe(payload_b64);
+        let payload_bytes = base64::decode_url_safe(payload_b64)?;
         let payload_str =
             String::from_utf8(payload_bytes).map_err(|_| anyhow!("invalid UTF-8 in payload"))?;
         let payload: serde_json::Value =

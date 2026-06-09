@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::sync::RwLock;
 use std::{net::IpAddr, time::Instant};
 
 pub struct WhitelistEntry {
@@ -13,20 +14,21 @@ pub enum ClientSource {
 }
 
 pub struct WhitelistVerifier {
-    entries: Vec<WhitelistEntry>,
+    entries: RwLock<Vec<WhitelistEntry>>,
 }
 
 impl WhitelistVerifier {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            entries: Vec::new(),
+            entries: RwLock::new(Vec::new()),
         }
     }
 
     pub fn is_whitelisted(&self, source: &ClientSource) -> Result<bool> {
         let now = Instant::now();
-        for entry in &self.entries {
+        let entries = self.entries.read().map_err(|e| anyhow::anyhow!("{}", e))?;
+        for entry in entries.iter() {
             if &entry.source == source {
                 if let Some(expires) = entry.expires_at {
                     if now < expires {
@@ -40,31 +42,41 @@ impl WhitelistVerifier {
         Ok(false)
     }
 
-    pub fn add(&mut self, source: ClientSource, ttl: Option<std::time::Duration>) {
+    pub fn add(&self, source: ClientSource, ttl: Option<std::time::Duration>) {
         let expires_at = ttl.map(|d| Instant::now() + d);
-        self.entries.retain(|e| e.source != source);
-        self.entries.push(WhitelistEntry { source, expires_at });
+        let mut entries = self.entries.write().expect("whitelist lock poisoned");
+        entries.retain(|e| e.source != source);
+        entries.push(WhitelistEntry { source, expires_at });
     }
 
-    pub fn remove(&mut self, source: &ClientSource) {
-        self.entries.retain(|e| &e.source != source);
+    pub fn remove(&self, source: &ClientSource) {
+        let mut entries = self.entries.write().expect("whitelist lock poisoned");
+        entries.retain(|e| &e.source != source);
     }
 
-    pub fn cleanup_expired(&mut self) -> usize {
-        let before = self.entries.len();
+    pub fn cleanup_expired(&self) -> usize {
+        let before = {
+            let entries = self.entries.read().expect("whitelist lock poisoned");
+            entries.len()
+        };
+        if before == 0 {
+            return 0;
+        }
         let now = Instant::now();
-        self.entries
-            .retain(|e| e.expires_at.map_or(true, |exp| now < exp));
-        before - self.entries.len()
+        let mut entries = self.entries.write().expect("whitelist lock poisoned");
+        entries.retain(|e| e.expires_at.map_or(true, |exp| now < exp));
+        before - entries.len()
     }
 
     pub fn len(&self) -> usize {
-        self.entries.len()
+        let entries = self.entries.read().expect("whitelist lock poisoned");
+        entries.len()
     }
 
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+        let entries = self.entries.read().expect("whitelist lock poisoned");
+        entries.is_empty()
     }
 }
 
@@ -82,7 +94,7 @@ mod tests {
 
     #[test]
     fn test_add_and_check_ip() {
-        let mut wl = WhitelistVerifier::new();
+        let wl = WhitelistVerifier::new();
         let ip = ClientSource::Ip(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)));
         wl.add(ip.clone(), None);
         assert!(wl.is_whitelisted(&ip).unwrap());
@@ -97,7 +109,7 @@ mod tests {
 
     #[test]
     fn test_ttl_expiry() {
-        let mut wl = WhitelistVerifier::new();
+        let wl = WhitelistVerifier::new();
         let ip = ClientSource::Ip(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)));
         wl.add(ip.clone(), Some(Duration::from_millis(1)));
         std::thread::sleep(Duration::from_millis(5));
@@ -106,7 +118,7 @@ mod tests {
 
     #[test]
     fn test_remove() {
-        let mut wl = WhitelistVerifier::new();
+        let wl = WhitelistVerifier::new();
         let ip = ClientSource::Ip(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)));
         wl.add(ip.clone(), None);
         assert_eq!(wl.len(), 1);
@@ -117,7 +129,7 @@ mod tests {
 
     #[test]
     fn test_mac_address() {
-        let mut wl = WhitelistVerifier::new();
+        let wl = WhitelistVerifier::new();
         let mac = ClientSource::Mac("AA:BB:CC:DD:EE:FF".to_string());
         wl.add(mac.clone(), None);
         assert!(wl.is_whitelisted(&mac).unwrap());
@@ -125,7 +137,7 @@ mod tests {
 
     #[test]
     fn test_remove_nonexistent() {
-        let mut wl = WhitelistVerifier::new();
+        let wl = WhitelistVerifier::new();
         let ip = ClientSource::Ip(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)));
         wl.remove(&ip);
         assert!(wl.is_empty());
@@ -133,7 +145,7 @@ mod tests {
 
     #[test]
     fn test_multiple_entries() {
-        let mut wl = WhitelistVerifier::new();
+        let wl = WhitelistVerifier::new();
         let ip1 = ClientSource::Ip(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)));
         let ip2 = ClientSource::Ip(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)));
         let mac = ClientSource::Mac("AA:BB:CC:DD:EE:FF".to_string());
@@ -148,7 +160,7 @@ mod tests {
 
     #[test]
     fn test_ipv6_whitelist() {
-        let mut wl = WhitelistVerifier::new();
+        let wl = WhitelistVerifier::new();
         let ip = ClientSource::Ip(IpAddr::V6(Ipv6Addr::LOCALHOST));
         wl.add(ip.clone(), None);
         assert!(wl.is_whitelisted(&ip).unwrap());
@@ -156,7 +168,7 @@ mod tests {
 
     #[test]
     fn test_cleanup_expired() {
-        let mut wl = WhitelistVerifier::new();
+        let wl = WhitelistVerifier::new();
         let ip1 = ClientSource::Ip(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)));
         let ip2 = ClientSource::Ip(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)));
         wl.add(ip1.clone(), Some(Duration::from_millis(1)));
@@ -173,7 +185,7 @@ mod tests {
 
     #[test]
     fn test_cleanup_no_expired() {
-        let mut wl = WhitelistVerifier::new();
+        let wl = WhitelistVerifier::new();
         let ip = ClientSource::Ip(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)));
         wl.add(ip.clone(), None);
         assert_eq!(wl.cleanup_expired(), 0);
@@ -182,7 +194,7 @@ mod tests {
 
     #[test]
     fn test_re_add_replaces() {
-        let mut wl = WhitelistVerifier::new();
+        let wl = WhitelistVerifier::new();
         let ip = ClientSource::Ip(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)));
         wl.add(ip.clone(), None);
         wl.add(ip.clone(), None);

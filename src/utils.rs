@@ -1,5 +1,7 @@
 pub mod base64 {
-    pub fn decode(input: &str) -> Vec<u8> {
+    use anyhow::{anyhow, Result};
+
+    pub fn decode(input: &str) -> Result<Vec<u8>> {
         let lookup: [u8; 256] = {
             let mut table = [0xFFu8; 256];
             for (i, c) in b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
@@ -20,7 +22,7 @@ pub mod base64 {
             }
             let val = lookup[b as usize];
             if val == 0xFF {
-                continue;
+                return Err(anyhow!("invalid base64 character: {:#04x}", b));
             }
             accum = (accum << 6) | u32::from(val);
             bits += 6;
@@ -29,10 +31,10 @@ pub mod base64 {
                 result.push((accum >> bits) as u8);
             }
         }
-        result
+        Ok(result)
     }
 
-    pub fn decode_url_safe(input: &str) -> Vec<u8> {
+    pub fn decode_url_safe(input: &str) -> Result<Vec<u8>> {
         let standard = input.replace('-', "+").replace('_', "/");
         let padded = {
             let mut s = standard;
@@ -136,35 +138,40 @@ mod tests {
 
     #[test]
     fn test_base64_decode_empty() {
-        assert!(base64::decode("").is_empty());
+        assert!(base64::decode("").unwrap().is_empty());
     }
 
     #[test]
     fn test_base64_decode_hello() {
-        assert_eq!(base64::decode("aGVsbG8="), b"hello");
+        assert_eq!(base64::decode("aGVsbG8=").unwrap(), b"hello");
     }
 
     #[test]
     fn test_base64_decode_foobar() {
-        assert_eq!(base64::decode("Zm9vYmFy"), b"foobar");
+        assert_eq!(base64::decode("Zm9vYmFy").unwrap(), b"foobar");
     }
 
     #[test]
     fn test_base64_decode_url_safe() {
-        let result = base64::decode_url_safe("aGVsbG8");
+        let result = base64::decode_url_safe("aGVsbG8").unwrap();
         assert_eq!(result, b"hello");
     }
 
     #[test]
     fn test_base64_decode_with_whitespace() {
-        assert_eq!(base64::decode("aGVs\n bG8="), b"hello");
+        assert_eq!(base64::decode("aGVs\n bG8=").unwrap(), b"hello");
     }
 
     #[test]
     fn test_base64_decode_padding_variants() {
-        assert_eq!(base64::decode("YQ=="), b"a");
-        assert_eq!(base64::decode("YWI="), b"ab");
-        assert_eq!(base64::decode("YWJj"), b"abc");
+        assert_eq!(base64::decode("YQ==").unwrap(), b"a");
+        assert_eq!(base64::decode("YWI=").unwrap(), b"ab");
+        assert_eq!(base64::decode("YWJj").unwrap(), b"abc");
+    }
+
+    #[test]
+    fn test_base64_decode_invalid_char_rejected() {
+        assert!(base64::decode("aGVs!bG8=").is_err());
     }
 
     #[test]
