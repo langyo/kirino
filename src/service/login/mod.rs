@@ -372,9 +372,6 @@ where
         password: &str,
         display_name: Option<&str>,
     ) -> KirinoResult<UserInfo> {
-        // Validate all inputs before consuming rate limit budget.
-        // This prevents attackers from exhausting rate limiter entries
-        // with a high volume of malformed requests (a DoS vector).
         let username = validate_username(username)?;
         validate_password(password)?;
 
@@ -382,7 +379,19 @@ where
             .check_and_record_failure(&username)
             .await?;
 
-        if self.db.find_by_username(&username).await?.is_some() {
+        let result = self.register_impl(&username, password, display_name).await;
+
+        self.register_rate_limiter.reset(&username).await;
+        result
+    }
+
+    async fn register_impl(
+        &self,
+        username: &str,
+        password: &str,
+        display_name: Option<&str>,
+    ) -> KirinoResult<UserInfo> {
+        if self.db.find_by_username(username).await?.is_some() {
             return Err(KirinoError::Internal("registration failed".to_string()));
         }
 
@@ -393,7 +402,7 @@ where
 
         let user = UserRecord {
             id: user_id,
-            username: username.clone(),
+            username: username.to_string(),
             password_hash,
             display_name: display_name.map(ToString::to_string),
             is_active: true,
@@ -416,8 +425,6 @@ where
             .assignment_store()
             .assign_role(&subject, role_name)
             .await?;
-
-        self.register_rate_limiter.reset(&username).await;
 
         Ok(user.to_public())
     }
