@@ -807,6 +807,23 @@ mod tests {
             .is_ok());
     }
 
+    #[tokio::test]
+    async fn test_rate_limiter_window_reset_below_max() {
+        let limiter = LoginRateLimiter::new(5, 1, 60);
+        limiter.check_and_record_failure("user").await.unwrap();
+        limiter.check_and_record_failure("user").await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        assert!(limiter.check_and_record_failure("user").await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_rate_limiter_lockout_persists_during_window() {
+        let limiter = LoginRateLimiter::new(2, 60, 60);
+        limiter.check_and_record_failure("user").await.unwrap();
+        limiter.check_and_record_failure("user").await.unwrap();
+        assert!(limiter.check_and_record_failure("user").await.is_err());
+    }
+
     #[test]
     fn test_build_default_engine_roles() {
         let engine = build_default_engine();

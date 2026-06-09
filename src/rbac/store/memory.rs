@@ -340,4 +340,37 @@ mod tests {
         assert_eq!(got.len(), 1);
         assert!(got.contains(&TestPerm("write")));
     }
+
+    #[tokio::test]
+    async fn test_concurrent_assign_and_read() {
+        let store = std::sync::Arc::new(InMemoryAssignmentStore::<TestSubject, TestPerm>::new());
+
+        let store_w = store.clone();
+        let writer = tokio::spawn(async move {
+            let subj = TestSubject("user1".to_string());
+            for i in 0..100 {
+                store_w
+                    .assign_role(&subj, &format!("role{i}"))
+                    .await
+                    .unwrap();
+            }
+        });
+
+        let store_r = store.clone();
+        let reader = tokio::spawn(async move {
+            let subj = TestSubject("user1".to_string());
+            for _ in 0..100 {
+                let _ = store_r.roles_of(&subj).await;
+            }
+        });
+
+        writer.await.unwrap();
+        reader.await.unwrap();
+
+        let roles = store
+            .roles_of(&TestSubject("user1".to_string()))
+            .await
+            .unwrap();
+        assert!(roles.len() >= 1);
+    }
 }

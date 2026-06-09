@@ -682,4 +682,43 @@ mod tests {
         let roles = engine.assignment_store().roles_of(&user).await.unwrap();
         assert_eq!(roles.len(), 1);
     }
+
+    #[tokio::test]
+    async fn test_concurrent_checks() {
+        let engine = Shared::new(build_engine());
+        let user = TestSubject("user1".to_string());
+        let read = TestPerm::Read;
+
+        engine
+            .assignment_store()
+            .assign_role(&user, "admin")
+            .await
+            .unwrap();
+
+        let handles: Vec<_> = (0..20)
+            .map(|_| {
+                let engine = engine.clone();
+                let user = user.clone();
+                tokio::spawn(async move { engine.check(&user, &read).await })
+            })
+            .collect();
+
+        for h in handles {
+            assert!(h.await.unwrap());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_check_nonexistent_role_in_registry() {
+        let engine = Shared::new(build_engine());
+        let user = TestSubject("user1".to_string());
+
+        engine
+            .assignment_store()
+            .assign_role(&user, "nonexistent-role")
+            .await
+            .unwrap();
+
+        assert!(!engine.check(&user, &TestPerm::Write).await);
+    }
 }
