@@ -142,23 +142,28 @@ where
     }
 
     async fn activate_role(&self, session_id: Uuid, role_name: &str) -> anyhow::Result<()> {
-        let mut sessions = self.sessions.write().await;
-        let session = sessions
-            .get(&session_id)
-            .ok_or_else(|| anyhow::anyhow!("session not found"))?;
+        // Extract session data under lock, then release before async calls
+        let (subject, current_roles) = {
+            let sessions = self.sessions.read().await;
+            let session = sessions
+                .get(&session_id)
+                .ok_or_else(|| anyhow::anyhow!("session not found"))?;
 
-        if session.is_expired() {
-            return Err(anyhow::anyhow!("session expired"));
-        }
+            if session.is_expired() {
+                return Err(anyhow::anyhow!("session expired"));
+            }
 
-        let assigned = self.assignment_store.roles_of(&session.subject).await?;
+            (session.subject.clone(), session.active_roles.clone())
+        };
+
+        let assigned = self.assignment_store.roles_of(&subject).await?;
         if !assigned.contains(&role_name.to_string()) {
             return Err(anyhow::anyhow!(
                 "role '{role_name}' not assigned to subject"
             ));
         }
 
-        let mut test_roles = session.active_roles.clone();
+        let mut test_roles = current_roles;
         test_roles.insert(role_name.to_string());
 
         #[cfg(feature = "rbac-constraints")]
@@ -166,9 +171,16 @@ where
             self.validate_dsd_with_store(&test_roles, cs).await?;
         }
 
+        // Re-acquire lock and mutate
+        let mut sessions = self.sessions.write().await;
         let session = sessions
             .get_mut(&session_id)
             .ok_or_else(|| anyhow::anyhow!("session not found"))?;
+
+        if session.is_expired() {
+            return Err(anyhow::anyhow!("session expired"));
+        }
+
         session.active_roles.insert(role_name.to_string());
         Ok(())
     }
