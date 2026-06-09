@@ -202,10 +202,13 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rbac::constraints::policies::DsdPolicy;
-    use crate::rbac::constraints::store::InMemoryConstraintStore;
     use crate::rbac::store::memory::InMemoryAssignmentStore;
     use crate::rbac::subject::StringSubject;
+
+    #[cfg(feature = "rbac-constraints")]
+    use crate::rbac::constraints::policies::DsdPolicy;
+    #[cfg(feature = "rbac-constraints")]
+    use crate::rbac::constraints::store::InMemoryConstraintStore;
 
     fn make_store() -> InMemoryAssignmentStore<StringSubject, TestPerm> {
         InMemoryAssignmentStore::new()
@@ -329,6 +332,7 @@ mod tests {
         assert!(mgr.get_session(session.id).await.unwrap().is_none());
     }
 
+    #[cfg(feature = "rbac-constraints")]
     #[tokio::test]
     async fn test_dsd_constraint_on_create() {
         let cs = InMemoryConstraintStore::new();
@@ -358,6 +362,7 @@ mod tests {
         assert!(result.is_err());
     }
 
+    #[cfg(feature = "rbac-constraints")]
     #[tokio::test]
     async fn test_dsd_constraint_on_activate() {
         let cs = InMemoryConstraintStore::new();
