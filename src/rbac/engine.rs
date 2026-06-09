@@ -5,6 +5,8 @@ use std::{
     time::Duration,
 };
 
+use futures::future::join_all;
+
 use crate::rbac::{
     cache::{PermissionCache, TtlPermissionCache},
     shared::Shared,
@@ -123,9 +125,8 @@ where
                 tracing::error!(target: "kirino::rbac::engine",
                     subject = %subject.subject_id(),
                     error = %e,
-                    "failed to query denied permissions — denying access"
+                    "failed to query denied permissions — denying access (not cached)"
                 );
-                self.cache.set(subject, permission, false).await;
                 return Err(());
             }
         }
@@ -141,9 +142,8 @@ where
                 tracing::error!(target: "kirino::rbac::engine",
                     subject = %subject.subject_id(),
                     error = %e,
-                    "failed to query extra permissions — denying access"
+                    "failed to query extra permissions — denying access (not cached)"
                 );
-                self.cache.set(subject, permission, false).await;
                 return Err(());
             }
         }
@@ -183,11 +183,12 @@ where
     }
 
     pub async fn check_batch(&self, subject: &S, permissions: &HashSet<P>) -> HashMap<P, bool> {
-        let mut results = HashMap::with_capacity(permissions.len());
-        for perm in permissions {
-            results.insert(perm.clone(), self.check(subject, perm).await);
-        }
-        results
+        let futs: Vec<_> = permissions
+            .iter()
+            .map(|perm| self.check(subject, perm))
+            .collect();
+        let outcomes = join_all(futs).await;
+        permissions.iter().zip(outcomes).map(|(p, r)| (p.clone(), r)).collect()
     }
 
     pub async fn effective_permissions(&self, subject: &S) -> HashSet<P> {

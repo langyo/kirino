@@ -17,6 +17,7 @@ pub struct CaptchaVerifier {
     challenges: Arc<RwLock<HashMap<String, ChallengeEntry>>>,
     ttl: Duration,
     max_attempts: u32,
+    cleanup_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl CaptchaVerifier {
@@ -26,6 +27,7 @@ impl CaptchaVerifier {
             challenges: Arc::new(RwLock::new(HashMap::new())),
             ttl: Duration::from_secs(300),
             max_attempts: 3,
+            cleanup_handle: None,
         }
     }
 
@@ -35,7 +37,24 @@ impl CaptchaVerifier {
             challenges: Arc::new(RwLock::new(HashMap::new())),
             ttl,
             max_attempts: max_attempts.max(1),
+            cleanup_handle: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_background_cleanup(mut self) -> Self {
+        let challenges = self.challenges.clone();
+        let ttl = self.ttl;
+        self.cleanup_handle = Some(tokio::spawn(async move {
+            let mut interval = tokio::time::interval(ttl / 2);
+            loop {
+                interval.tick().await;
+                let mut chals = challenges.write().await;
+                let now = Instant::now();
+                chals.retain(|_, entry| now.duration_since(entry.created_at) <= ttl);
+            }
+        }));
+        self
     }
 
     pub async fn verify(&self, challenge_id: &str, user_response: &str) -> Result<bool> {
@@ -60,6 +79,11 @@ impl CaptchaVerifier {
 
         if correct {
             challenges.remove(challenge_id);
+        }
+
+        if challenges.len() > 1000 {
+            let now = Instant::now();
+            challenges.retain(|_, entry| now.duration_since(entry.created_at) <= self.ttl);
         }
 
         Ok(correct)
@@ -105,6 +129,14 @@ impl CaptchaVerifier {
 impl Default for CaptchaVerifier {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl Drop for CaptchaVerifier {
+    fn drop(&mut self) {
+        if let Some(handle) = self.cleanup_handle.take() {
+            handle.abort();
+        }
     }
 }
 

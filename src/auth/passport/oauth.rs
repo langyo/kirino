@@ -11,11 +11,16 @@ use crate::utils::base64;
 /// **Do not use in production.** Replace with a verifier that validates the
 /// signature against the authorization server's public key (e.g. via the
 /// `jsonwebtoken` crate) or performs an opaque token introspection call.
+#[deprecated(
+    since = "0.5.0",
+    note = "This implementation does NOT verify JWT signatures. Use a proper OAuth verifier with jwks_uri signature validation instead."
+)]
 pub struct OAuthVerifier {
     provider: String,
     client_id: String,
 }
 
+#[allow(deprecated)]
 impl OAuthVerifier {
     #[must_use]
     pub fn new(provider: String, client_id: String) -> Self {
@@ -93,6 +98,7 @@ pub struct OAuthClaims {
 mod tests {
     use super::*;
 
+    #[allow(deprecated)]
     #[test]
     fn test_authorization_url_google() {
         let v = OAuthVerifier::new("google".to_string(), "my-client".to_string());
@@ -103,6 +109,7 @@ mod tests {
         assert!(url.contains("state=state123"));
     }
 
+    #[allow(deprecated)]
     #[test]
     fn test_authorization_url_github() {
         let v = OAuthVerifier::new("github".to_string(), "gh-client".to_string());
@@ -112,6 +119,7 @@ mod tests {
         assert!(url.contains("redirect_uri=%2Fcallback"));
     }
 
+    #[allow(deprecated)]
     #[test]
     fn test_authorization_url_generic() {
         let v = OAuthVerifier::new("sso.example.com".to_string(), "cid".to_string());
@@ -119,6 +127,7 @@ mod tests {
         assert!(url.contains("sso.example.com"));
     }
 
+    #[allow(deprecated)]
     #[test]
     fn test_authorization_url_encodes_special_chars() {
         let v = OAuthVerifier::new("google".to_string(), "id".to_string());
@@ -127,12 +136,14 @@ mod tests {
         assert!(url.contains("state=state%20with%20spaces"));
     }
 
+    #[allow(deprecated)]
     #[test]
     fn test_verify_empty_token() {
         let v = OAuthVerifier::new("test".to_string(), "cid".to_string());
         assert!(v.verify_token("").is_err());
     }
 
+    #[allow(deprecated)]
     #[test]
     fn test_verify_opaque_token() {
         let v = OAuthVerifier::new("test".to_string(), "cid".to_string());
@@ -141,6 +152,7 @@ mod tests {
         assert!(result.unwrap_err().to_string().contains("opaque"));
     }
 
+    #[allow(deprecated)]
     #[test]
     fn test_verify_jwt_extracts_claims() {
         let v = OAuthVerifier::new("test".to_string(), "cid".to_string());
@@ -153,6 +165,7 @@ mod tests {
         assert_eq!(claims.name, Some("User One".to_string()));
     }
 
+    #[allow(deprecated)]
     #[test]
     fn test_verify_jwt_missing_sub() {
         let v = OAuthVerifier::new("test".to_string(), "cid".to_string());
@@ -162,6 +175,7 @@ mod tests {
         assert!(v.verify_token(&token).is_err());
     }
 
+    #[allow(deprecated)]
     #[test]
     fn test_verify_jwt_invalid_utf8() {
         let v = OAuthVerifier::new("test".to_string(), "cid".to_string());
@@ -170,6 +184,7 @@ mod tests {
         assert!(v.verify_token(&token).is_err());
     }
 
+    #[allow(deprecated)]
     #[test]
     fn test_verify_jwt_invalid_json() {
         let v = OAuthVerifier::new("test".to_string(), "cid".to_string());
