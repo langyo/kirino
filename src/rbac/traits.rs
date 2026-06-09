@@ -36,11 +36,11 @@ pub trait PermissionRegistry<P: Permission>: Send + Sync {
     fn get_permission(&self, name: &str) -> Option<P>;
 }
 
-pub trait RoleRegistry<R, P: Permission>: Send + Sync
-where
-    R: Role<P>,
-{
-    fn get_role(&self, role_name: &str) -> Option<R>;
+pub trait RoleRegistry<P: Permission>: Send + Sync {
+    fn get_role_permissions(&self, role_name: &str) -> Option<HashSet<P>>;
+    fn role_parents(&self, _role_name: &str) -> Vec<String> {
+        Vec::new()
+    }
     fn list_role_names(&self) -> Vec<String>;
 }
 

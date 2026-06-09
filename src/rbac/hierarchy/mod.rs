@@ -47,13 +47,12 @@ impl<P: Permission> HierarchicalRole<P> for HierarchyNode<P> {
     }
 }
 
-pub fn resolve_role_chain<P, R>(
+pub fn resolve_role_chain<P>(
     role_name: &str,
-    registry: &dyn crate::rbac::traits::RoleRegistry<R, P>,
+    registry: &dyn crate::rbac::traits::RoleRegistry<P>,
 ) -> HashSet<P>
 where
     P: Permission,
-    R: HierarchicalRole<P>,
 {
     let mut all_perms = HashSet::new();
     let mut visited = HashSet::new();
@@ -65,9 +64,9 @@ where
         }
         visited.insert(current.clone());
 
-        if let Some(role) = registry.get_role(&current) {
-            all_perms.extend(role.permissions().iter().cloned());
-            for parent in role.parent_roles() {
+        if let Some(perms) = registry.get_role_permissions(&current) {
+            all_perms.extend(perms);
+            for parent in registry.role_parents(&current) {
                 if !visited.contains(&parent) {
                     stack.push(parent);
                 }
@@ -78,15 +77,14 @@ where
     all_perms
 }
 
-fn dfs<P, R>(
+fn dfs<P>(
     name: &str,
-    registry: &dyn crate::rbac::traits::RoleRegistry<R, P>,
+    registry: &dyn crate::rbac::traits::RoleRegistry<P>,
     visited: &mut HashSet<String>,
     path: &mut HashSet<String>,
 ) -> bool
 where
     P: Permission,
-    R: HierarchicalRole<P>,
 {
     if path.contains(name) {
         return true;
@@ -97,8 +95,8 @@ where
     visited.insert(name.to_string());
     path.insert(name.to_string());
 
-    if let Some(role) = registry.get_role(name) {
-        for parent in role.parent_roles() {
+    if registry.get_role_permissions(name).is_some() {
+        for parent in registry.role_parents(name) {
             if dfs(&parent, registry, visited, path) {
                 return true;
             }
@@ -109,13 +107,12 @@ where
     false
 }
 
-pub fn detect_cycle<P, R>(
+pub fn detect_cycle<P>(
     role_name: &str,
-    registry: &dyn crate::rbac::traits::RoleRegistry<R, P>,
+    registry: &dyn crate::rbac::traits::RoleRegistry<P>,
 ) -> bool
 where
     P: Permission,
-    R: HierarchicalRole<P>,
 {
     let mut visited = HashSet::new();
     let mut path = HashSet::new();
@@ -153,6 +150,7 @@ mod tests {
             HierarchyNode::new("admin", [TestPerm::Admin].into_iter().collect())
                 .with_parents(vec!["operator".to_string(), "auditor".to_string()]),
         );
+        reg.set_parents("admin", vec!["operator".to_string(), "auditor".to_string()]);
         reg.register(
             HierarchyNode::new(
                 "operator",
@@ -160,6 +158,7 @@ mod tests {
             )
             .with_parents(vec!["viewer".to_string()]),
         );
+        reg.set_parents("operator", vec!["viewer".to_string()]);
         reg.register(HierarchyNode::new(
             "auditor",
             [TestPerm::Read].into_iter().collect(),
@@ -220,10 +219,12 @@ mod tests {
             HierarchyNode::new("a", [TestPerm::Read].into_iter().collect())
                 .with_parents(vec!["b".to_string()]),
         );
+        reg.set_parents("a", vec!["b".to_string()]);
         reg.register(
             HierarchyNode::new("b", [TestPerm::Write].into_iter().collect())
                 .with_parents(vec!["a".to_string()]),
         );
+        reg.set_parents("b", vec!["a".to_string()]);
         assert!(detect_cycle("a", &reg));
         assert!(detect_cycle("b", &reg));
     }
@@ -235,6 +236,7 @@ mod tests {
             HierarchyNode::new("self_ref", [TestPerm::Read].into_iter().collect())
                 .with_parents(vec!["self_ref".to_string()]),
         );
+        reg.set_parents("self_ref", vec!["self_ref".to_string()]);
         assert!(detect_cycle("self_ref", &reg));
     }
 
@@ -245,10 +247,12 @@ mod tests {
             HierarchyNode::new("a", [TestPerm::Read].into_iter().collect())
                 .with_parents(vec!["b".to_string()]),
         );
+        reg.set_parents("a", vec!["b".to_string()]);
         reg.register(
             HierarchyNode::new("b", [TestPerm::Write].into_iter().collect())
                 .with_parents(vec!["a".to_string()]),
         );
+        reg.set_parents("b", vec!["a".to_string()]);
         let perms = resolve_role_chain("a", &reg);
         assert!(perms.contains(&TestPerm::Read));
         assert!(perms.contains(&TestPerm::Write));
@@ -261,14 +265,17 @@ mod tests {
             HierarchyNode::new("a", [TestPerm::Read].into_iter().collect())
                 .with_parents(vec!["b".to_string()]),
         );
+        reg.set_parents("a", vec!["b".to_string()]);
         reg.register(
             HierarchyNode::new("b", [TestPerm::Write].into_iter().collect())
                 .with_parents(vec!["c".to_string()]),
         );
+        reg.set_parents("b", vec!["c".to_string()]);
         reg.register(
             HierarchyNode::new("c", [TestPerm::Delete].into_iter().collect())
                 .with_parents(vec!["a".to_string()]),
         );
+        reg.set_parents("c", vec!["a".to_string()]);
         assert!(detect_cycle("a", &reg));
         assert!(detect_cycle("b", &reg));
         assert!(detect_cycle("c", &reg));
@@ -284,6 +291,7 @@ mod tests {
             HierarchyNode::new("level0", [TestPerm::Admin].into_iter().collect())
                 .with_parents(vec!["level1".to_string()]),
         );
+        reg.set_parents("level0", vec!["level1".to_string()]);
         for i in 1..10 {
             reg.register(HierarchyNode::new(
                 format!("level{i}"),
@@ -302,14 +310,17 @@ mod tests {
             HierarchyNode::new("root", [TestPerm::Admin].into_iter().collect())
                 .with_parents(vec!["left".to_string(), "right".to_string()]),
         );
+        reg.set_parents("root", vec!["left".to_string(), "right".to_string()]);
         reg.register(
             HierarchyNode::new("left", [TestPerm::Read].into_iter().collect())
                 .with_parents(vec!["base".to_string()]),
         );
+        reg.set_parents("left", vec!["base".to_string()]);
         reg.register(
             HierarchyNode::new("right", [TestPerm::Write].into_iter().collect())
                 .with_parents(vec!["base".to_string()]),
         );
+        reg.set_parents("right", vec!["base".to_string()]);
         reg.register(HierarchyNode::new(
             "base",
             [TestPerm::Delete].into_iter().collect(),

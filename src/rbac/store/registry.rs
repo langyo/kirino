@@ -65,6 +65,7 @@ where
     P: Permission,
 {
     roles: HashMap<String, R>,
+    parents: HashMap<String, Vec<String>>,
     _phantom: PhantomData<P>,
 }
 
@@ -77,12 +78,17 @@ where
     pub fn new() -> Self {
         Self {
             roles: HashMap::new(),
+            parents: HashMap::new(),
             _phantom: PhantomData,
         }
     }
 
     pub fn register(&mut self, role: R) {
         self.roles.insert(role.role_name().to_string(), role);
+    }
+
+    pub fn set_parents(&mut self, role_name: &str, parents: Vec<String>) {
+        self.parents.insert(role_name.to_string(), parents);
     }
 }
 
@@ -96,13 +102,17 @@ where
     }
 }
 
-impl<R, P> RoleRegistry<R, P> for StaticRoleRegistry<R, P>
+impl<R, P> RoleRegistry<P> for StaticRoleRegistry<R, P>
 where
     R: Role<P>,
     P: Permission,
 {
-    fn get_role(&self, role_name: &str) -> Option<R> {
-        self.roles.get(role_name).cloned()
+    fn get_role_permissions(&self, role_name: &str) -> Option<HashSet<P>> {
+        self.roles.get(role_name).map(|r| r.permissions().clone())
+    }
+
+    fn role_parents(&self, role_name: &str) -> Vec<String> {
+        self.parents.get(role_name).cloned().unwrap_or_default()
     }
 
     fn list_role_names(&self) -> Vec<String> {
@@ -167,15 +177,15 @@ mod tests {
             [TestPerm::Read, TestPerm::Write, TestPerm::Delete].into(),
         ));
 
-        assert!(reg.get_role("viewer").is_some());
-        assert!(reg.get_role("admin").is_some());
-        assert!(reg.get_role("unknown").is_none());
+        assert!(reg.get_role_permissions("viewer").is_some());
+        assert!(reg.get_role_permissions("admin").is_some());
+        assert!(reg.get_role_permissions("unknown").is_none());
 
         let names = reg.list_role_names();
         assert_eq!(names.len(), 2);
 
-        let admin = reg.get_role("admin").unwrap();
-        assert_eq!(admin.permissions().len(), 3);
+        let admin = reg.get_role_permissions("admin").unwrap();
+        assert_eq!(admin.len(), 3);
     }
 
     #[test]
@@ -187,7 +197,7 @@ mod tests {
             [TestPerm::Read, TestPerm::Write].into(),
         ));
 
-        let role = reg.get_role("role").unwrap();
-        assert_eq!(role.permissions().len(), 2);
+        let perms = reg.get_role_permissions("role").unwrap();
+        assert_eq!(perms.len(), 2);
     }
 }

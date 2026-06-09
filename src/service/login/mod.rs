@@ -24,7 +24,7 @@ use crate::{
             registry::{SimpleRole, StaticPermissionRegistry, StaticRoleRegistry},
         },
         subject::StringSubject,
-        traits::{AssignmentStore, Permission, Role},
+        traits::{AssignmentStore, Permission},
     },
 };
 
@@ -288,15 +288,14 @@ pub struct LoginResult {
 }
 
 #[cfg(all(feature = "auth-password", feature = "auth-jwt"))]
-pub struct AuthService<DB, P, R, A>
+pub struct AuthService<DB, P, A>
 where
     P: Permission,
-    R: Role<P>,
     A: AssignmentStore<StringSubject, P>,
 {
     db: DB,
     jwt: JwtManager,
-    engine: Shared<RbacEngine<StringSubject, P, R, A>>,
+    engine: Shared<RbacEngine<StringSubject, P, A>>,
     #[cfg(feature = "rbac-dynamic")]
     arbiter: Option<Shared<AuthorizationArbiter>>,
     rate_limiter: LoginRateLimiter,
@@ -307,18 +306,17 @@ where
 }
 
 #[cfg(all(feature = "auth-password", feature = "auth-jwt"))]
-impl<DB, P, R, A> AuthService<DB, P, R, A>
+impl<DB, P, A> AuthService<DB, P, A>
 where
     DB: UserDatabase,
     P: Permission,
-    R: Role<P>,
     A: AssignmentStore<StringSubject, P>,
 {
     pub fn new(
         db: DB,
         jwt_secret: &str,
         jwt_expiration_hours: i64,
-        engine: Shared<RbacEngine<StringSubject, P, R, A>>,
+        engine: Shared<RbacEngine<StringSubject, P, A>>,
         first_user_role: &str,
         default_role: &str,
     ) -> KirinoResult<Self> {
@@ -364,7 +362,7 @@ where
         &self.jwt
     }
 
-    pub fn engine(&self) -> Shared<RbacEngine<StringSubject, P, R, A>> {
+    pub fn engine(&self) -> Shared<RbacEngine<StringSubject, P, A>> {
         self.engine.clone()
     }
 
@@ -605,7 +603,6 @@ where
 type DefaultEngine = RbacEngine<
     StringSubject,
     KirinoPermission,
-    SimpleRole<KirinoPermission>,
     InMemoryAssignmentStore<StringSubject, KirinoPermission>,
 >;
 
@@ -855,25 +852,25 @@ mod tests {
     fn test_build_default_engine_roles() {
         let engine = build_default_engine();
         let reg = engine.role_registry();
-        assert!(reg.get_role("admin").is_some());
-        assert!(reg.get_role("operator").is_some());
-        assert!(reg.get_role("viewer").is_some());
-        assert!(reg.get_role("agent").is_some());
-        assert!(reg.get_role("nonexistent").is_none());
+        assert!(reg.get_role_permissions("admin").is_some());
+        assert!(reg.get_role_permissions("operator").is_some());
+        assert!(reg.get_role_permissions("viewer").is_some());
+        assert!(reg.get_role_permissions("agent").is_some());
+        assert!(reg.get_role_permissions("nonexistent").is_none());
     }
 
     #[test]
     fn test_build_default_engine_admin_has_all_perms() {
         let engine = build_default_engine();
-        let admin = engine.role_registry().get_role("admin").unwrap();
-        assert_eq!(admin.permissions().len(), KirinoPermission::all().len());
+        let admin = engine.role_registry().get_role_permissions("admin").unwrap();
+        assert_eq!(admin.len(), KirinoPermission::all().len());
     }
 
     #[test]
     fn test_build_default_engine_viewer_is_read_only() {
         let engine = build_default_engine();
-        let viewer = engine.role_registry().get_role("viewer").unwrap();
-        for perm in viewer.permissions() {
+        let viewer = engine.role_registry().get_role_permissions("viewer").unwrap();
+        for perm in &viewer {
             assert!(
                 perm.name().ends_with("_read"),
                 "viewer should only have read perms, got {}",

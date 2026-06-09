@@ -4,7 +4,7 @@ mod tests {
     use crate::{
         database::sql::InMemoryUserDatabase,
         rbac::{
-            store::{memory::InMemoryAssignmentStore, registry::SimpleRole},
+            store::memory::InMemoryAssignmentStore,
             subject::StringSubject,
             traits::AssignmentStore,
         },
@@ -14,7 +14,6 @@ mod tests {
     fn make_auth() -> AuthService<
         InMemoryUserDatabase,
         KirinoPermission,
-        SimpleRole<KirinoPermission>,
         InMemoryAssignmentStore<StringSubject, KirinoPermission>,
     > {
         let db = InMemoryUserDatabase::new();

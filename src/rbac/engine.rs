@@ -10,31 +10,29 @@ use futures::future::join_all;
 use crate::rbac::{
     cache::{PermissionCache, TtlPermissionCache},
     shared::Shared,
-    traits::{AssignmentStore, Permission, PermissionRegistry, Role, RoleRegistry, Subject},
+    traits::{AssignmentStore, Permission, PermissionRegistry, RoleRegistry, Subject},
 };
 
 #[cfg(feature = "rbac-hierarchy")]
-use crate::rbac::hierarchy::{resolve_role_chain, HierarchicalRole};
+use crate::rbac::hierarchy::resolve_role_chain;
 
-pub struct RbacEngine<S, P, R, A>
+pub struct RbacEngine<S, P, A>
 where
     S: Subject,
     P: Permission,
-    R: Role<P>,
     A: AssignmentStore<S, P>,
 {
-    role_registry: Shared<dyn RoleRegistry<R, P>>,
+    role_registry: Shared<dyn RoleRegistry<P>>,
     permission_registry: Shared<dyn PermissionRegistry<P>>,
     assignment_store: Shared<A>,
     cache: Shared<dyn PermissionCache<S, P>>,
-    _phantom: PhantomData<(S, R)>,
+    _phantom: PhantomData<S>,
 }
 
-impl<S, P, R, A> Clone for RbacEngine<S, P, R, A>
+impl<S, P, A> Clone for RbacEngine<S, P, A>
 where
     S: Subject,
     P: Permission,
-    R: Role<P>,
     A: AssignmentStore<S, P>,
 {
     fn clone(&self) -> Self {
@@ -48,15 +46,14 @@ where
     }
 }
 
-impl<S, P, R, A> RbacEngine<S, P, R, A>
+impl<S, P, A> RbacEngine<S, P, A>
 where
     S: Subject,
     P: Permission,
-    R: Role<P>,
     A: AssignmentStore<S, P>,
 {
     pub fn new(
-        role_registry: impl RoleRegistry<R, P> + 'static,
+        role_registry: impl RoleRegistry<P> + 'static,
         permission_registry: impl PermissionRegistry<P> + 'static,
         assignment_store: A,
     ) -> Self {
@@ -78,7 +75,7 @@ where
     }
 
     #[must_use]
-    pub fn role_registry(&self) -> Shared<dyn RoleRegistry<R, P>> {
+    pub fn role_registry(&self) -> Shared<dyn RoleRegistry<P>> {
         self.role_registry.clone()
     }
 
@@ -161,8 +158,8 @@ where
         match self.assignment_store.roles_of(subject).await {
             Ok(role_names) => {
                 for role_name in &role_names {
-                    if let Some(role) = self.role_registry.get_role(role_name) {
-                        if role.permissions().contains(permission) {
+                    if let Some(perms) = self.role_registry.get_role_permissions(role_name) {
+                        if perms.contains(permission) {
                             self.cache.set(subject, permission, true).await;
                             return true;
                         }
@@ -197,8 +194,8 @@ where
         match self.assignment_store.roles_of(subject).await {
             Ok(role_names) => {
                 for role_name in &role_names {
-                    if let Some(role) = self.role_registry.get_role(role_name) {
-                        perms.extend(role.permissions().iter().cloned());
+                    if let Some(role_perms) = self.role_registry.get_role_permissions(role_name) {
+                        perms.extend(role_perms);
                     }
                 }
             }
@@ -224,11 +221,10 @@ where
 }
 
 #[cfg(feature = "rbac-hierarchy")]
-impl<S, P, R, A> RbacEngine<S, P, R, A>
+impl<S, P, A> RbacEngine<S, P, A>
 where
     S: Subject,
     P: Permission,
-    R: HierarchicalRole<P>,
     A: AssignmentStore<S, P>,
 {
     pub async fn check_hierarchical(&self, subject: &S, permission: &P) -> bool {
@@ -312,7 +308,6 @@ mod tests {
     fn build_engine() -> RbacEngine<
         TestSubject,
         TestPerm,
-        SimpleRole<TestPerm>,
         InMemoryAssignmentStore<TestSubject, TestPerm>,
     > {
         let mut role_reg = StaticRoleRegistry::new();
@@ -587,8 +582,8 @@ mod tests {
     async fn test_role_registry_accessor() {
         let engine = build_engine();
         let reg = engine.role_registry();
-        assert!(reg.get_role("admin").is_some());
-        assert!(reg.get_role("nonexistent").is_none());
+        assert!(reg.get_role_permissions("admin").is_some());
+        assert!(reg.get_role_permissions("nonexistent").is_none());
     }
 
     #[tokio::test]
@@ -811,7 +806,6 @@ mod tests {
         let engine = RbacEngine::<
             TestSubject,
             TestPerm,
-            SimpleRole<TestPerm>,
             FailingAssignmentStore,
         >::new(
             StaticRoleRegistry::<SimpleRole<TestPerm>, TestPerm>::new(),
@@ -874,7 +868,6 @@ mod tests {
         let engine = RbacEngine::<
             TestSubject,
             TestPerm,
-            SimpleRole<TestPerm>,
             ExtraOnlyFailingStore,
         >::new(role_reg, perm_reg, ExtraOnlyFailingStore(InMemoryAssignmentStore::new()));
 
@@ -902,7 +895,6 @@ mod tests {
         let engine = RbacEngine::<
             TestSubject,
             TestPerm,
-            SimpleRole<TestPerm>,
             DeniedOnlyFailingStore,
         >::new(role_reg, perm_reg, DeniedOnlyFailingStore(InMemoryAssignmentStore::new()));
         let user = TestSubject("user".to_string());
