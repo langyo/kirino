@@ -10,7 +10,7 @@ use super::{
     domain::DomainScope,
     metrics::ActionRequest,
     policy::DynamicPolicy,
-    trust::{TrustDecayWorker, TrustScore, TrustScoreStore},
+    trust::{TrustDecayHandle, TrustDecayWorker, TrustScore, TrustScoreStore},
     verdict::{ActionOutcome, AuthorizationVerdict, AutonomyLevel, RiskScore, Strategy, SubScores},
 };
 use crate::rbac::{
@@ -78,7 +78,7 @@ impl AuthorizationArbiter {
     }
 
     #[must_use]
-    pub fn spawn_trust_decay(&self, interval: std::time::Duration) -> tokio::task::JoinHandle<()> {
+    pub fn spawn_trust_decay(&self, interval: std::time::Duration) -> TrustDecayHandle {
         let store = self.trust_store.clone_arc();
         TrustDecayWorker::spawn_resilient(store, interval)
     }

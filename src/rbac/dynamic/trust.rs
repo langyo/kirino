@@ -148,6 +148,26 @@ impl TrustScoreStore for InMemoryTrustScoreStore {
     }
 }
 
+/// A handle that aborts the background trust decay task on drop.
+#[must_use]
+pub struct TrustDecayHandle(tokio::task::JoinHandle<()>);
+
+impl TrustDecayHandle {
+    pub fn new(handle: tokio::task::JoinHandle<()>) -> Self {
+        Self(handle)
+    }
+
+    pub fn abort(&self) {
+        self.0.abort();
+    }
+}
+
+impl Drop for TrustDecayHandle {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
 pub struct TrustDecayWorker {
     store: Arc<dyn TrustScoreStore>,
     interval: Duration,
@@ -218,8 +238,8 @@ impl TrustDecayWorker {
     pub fn spawn_resilient(
         store: Arc<dyn TrustScoreStore>,
         interval: Duration,
-    ) -> tokio::task::JoinHandle<()> {
-        tokio::spawn(async move {
+    ) -> TrustDecayHandle {
+        TrustDecayHandle(tokio::spawn(async move {
             let worker = Self::new(store.clone(), interval, interval);
             let mut interval_tick = tokio::time::interval(interval);
             loop {
@@ -239,7 +259,7 @@ impl TrustDecayWorker {
                     }
                 }
             }
-        })
+        }))
     }
 }
 
