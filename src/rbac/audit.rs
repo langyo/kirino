@@ -349,9 +349,8 @@ impl AuditPolicyEngine for InMemoryAuditPolicyEngine {
             }
 
             if let Some(&last_time) = last_triggered.get(&rule.id) {
-                #[allow(clippy::cast_sign_loss)]
-                let elapsed = (now - last_time).num_seconds() as u64;
-                if elapsed < rule.cooldown_secs {
+                let elapsed_secs = (now - last_time).num_seconds();
+                if elapsed_secs < 0 || (elapsed_secs as u64) < rule.cooldown_secs {
                     continue;
                 }
             }
@@ -362,8 +361,7 @@ impl AuditPolicyEngine for InMemoryAuditPolicyEngine {
                     min_count,
                 } => {
                     if let Some(ref sink) = self.sink {
-                        #[allow(clippy::cast_possible_wrap)]
-                        let window_secs_i64 = *window_secs as i64;
+                        let window_secs_i64 = i64::try_from(*window_secs).unwrap_or(i64::MAX);
                         let since = now - chrono::Duration::seconds(window_secs_i64);
                         let filter = AuditFilter {
                             subject_id: Some(entry.subject_id.clone()),
@@ -371,9 +369,8 @@ impl AuditPolicyEngine for InMemoryAuditPolicyEngine {
                             since: Some(since),
                             ..Default::default()
                         };
-                        #[allow(clippy::cast_possible_truncation)]
-                        let count = sink.query(&filter).await.len() as u32;
-                        count >= *min_count
+                        let query_len = sink.query(&filter).await.len();
+                        query_len >= (*min_count as usize)
                     } else {
                         false
                     }

@@ -171,9 +171,14 @@ impl AnomalyDetector {
             }
         }
         for (cat, sum_sq) in &mut category_stdevs {
+            let count = counts.get(cat).copied().unwrap_or(0.0);
             let mean = category_means.get(cat).copied().unwrap_or(0.0);
-            let variance = mean * (1.0 - mean) / n.max(1.0);
-            *sum_sq = (variance + *sum_sq / n).sqrt().max(0.01);
+            let sample_var = if count > 1.0 {
+                *sum_sq / (count - 1.0)
+            } else {
+                mean * (1.0 - mean)
+            };
+            *sum_sq = sample_var.sqrt().max(0.01);
         }
 
         self.baseline = Some(BehaviorBaseline {

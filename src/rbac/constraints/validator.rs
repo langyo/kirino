@@ -52,6 +52,21 @@ impl<S: ConstraintStore> ConstraintValidator<S> {
     }
 
     /// # Errors
+    /// Returns an error if any temporal constraint is violated at the current time.
+    pub async fn validate_temporal(&self, role_name: &str) -> Result<()> {
+        let constraints = self.store.list_temporal_constraints().await?;
+        for constraint in &constraints {
+            if constraint.role_name == role_name && !constraint.is_valid() {
+                return Err(anyhow!(
+                    "Temporal constraint: role '{}' is not available at the current time",
+                    role_name,
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// # Errors
     /// Returns an error if the cardinality constraint for the role would be exceeded.
     pub async fn validate_cardinality(
         &self,
@@ -93,7 +108,7 @@ impl<S: ConstraintStore> ConstraintValidator<S> {
     }
 
     /// # Errors
-    /// Returns an error if any SSD, cardinality, or prerequisite constraint is violated.
+    /// Returns an error if any SSD, cardinality, prerequisite, or temporal constraint is violated.
     pub async fn validate_assignment(
         &self,
         current_roles: &[String],
@@ -104,6 +119,7 @@ impl<S: ConstraintStore> ConstraintValidator<S> {
         self.validate_cardinality(new_role, current_subject_count)
             .await?;
         self.validate_prerequisite(new_role, current_roles).await?;
+        self.validate_temporal(new_role).await?;
         Ok(())
     }
 }

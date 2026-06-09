@@ -7,10 +7,12 @@ use std::{
 
 use crate::rbac::{
     cache::{PermissionCache, TtlPermissionCache},
-    hierarchy::{resolve_role_chain, HierarchicalRole},
     shared::Shared,
     traits::{AssignmentStore, Permission, PermissionRegistry, Role, RoleRegistry, Subject},
 };
+
+#[cfg(feature = "rbac-hierarchy")]
+use crate::rbac::hierarchy::{resolve_role_chain, HierarchicalRole};
 
 pub struct RbacEngine<S, P, R, A>
 where
@@ -88,6 +90,19 @@ where
         self.assignment_store.clone()
     }
 
+    #[must_use]
+    pub fn cache(&self) -> Shared<dyn PermissionCache<S, P>> {
+        self.cache.clone()
+    }
+
+    pub fn invalidate_subject_cache(&self, subject: &S) {
+        self.cache.invalidate_subject(subject);
+    }
+
+    pub fn invalidate_all_cache(&self) {
+        self.cache.invalidate_all();
+    }
+
     pub async fn check(&self, subject: &S, permission: &P) -> bool {
         if let Some(granted) = self.cache.get(subject, permission) {
             return granted;
@@ -153,6 +168,7 @@ where
     }
 }
 
+#[cfg(feature = "rbac-hierarchy")]
 impl<S, P, R, A> RbacEngine<S, P, R, A>
 where
     S: Subject,

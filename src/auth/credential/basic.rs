@@ -30,6 +30,10 @@ pub struct JwtManager {
 impl JwtManager {
     #[must_use]
     pub fn new(secret: &str, expiration_hours: i64) -> Self {
+        assert!(
+            secret.len() >= 32,
+            "JWT secret must be at least 32 bytes for HS256 security"
+        );
         Self {
             encoding_key: EncodingKey::from_secret(secret.as_bytes()),
             decoding_key: DecodingKey::from_secret(secret.as_bytes()),
@@ -94,6 +98,12 @@ impl JwtManager {
         let mut revocation = self.revocation.write().await;
         revocation.insert(user_id.to_string(), now);
     }
+
+    pub async fn cleanup_revocation(&self, max_token_lifetime_secs: i64) {
+        let cutoff = Utc::now().timestamp() - max_token_lifetime_secs;
+        let mut revocation = self.revocation.write().await;
+        revocation.retain(|_, &mut not_before| not_before > cutoff);
+    }
 }
 
 #[cfg(test)]
@@ -102,7 +112,7 @@ mod tests {
 
     #[test]
     fn test_issue_and_verify() {
-        let mgr = JwtManager::new("test-secret", 24);
+        let mgr = JwtManager::new("test-secret-that-is-at-least-32-bytes-long", 24);
         let token = mgr.issue("user-1", "alice", vec!["admin".into()]).unwrap();
         let claims = mgr.verify(&token).unwrap();
         assert_eq!(claims.sub, "alice");
@@ -112,13 +122,13 @@ mod tests {
 
     #[test]
     fn test_invalid_token() {
-        let mgr = JwtManager::new("test-secret", 24);
+        let mgr = JwtManager::new("test-secret-that-is-at-least-32-bytes-long", 24);
         assert!(mgr.verify("garbage.token.here").is_err());
     }
 
     #[tokio::test]
     async fn test_revoke_all_for_user() {
-        let mgr = JwtManager::new("test-secret", 24);
+        let mgr = JwtManager::new("test-secret-that-is-at-least-32-bytes-long", 24);
         let token = mgr.issue("user-1", "alice", vec!["admin".into()]).unwrap();
         let claims = mgr.verify_with_revocation(&token).await.unwrap();
         assert_eq!(claims.sub, "alice");
@@ -129,7 +139,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_new_token_after_revocation() {
-        let mgr = JwtManager::new("test-secret", 24);
+        let mgr = JwtManager::new("test-secret-that-is-at-least-32-bytes-long", 24);
         let old_token = mgr.issue("user-1", "alice", vec!["admin".into()]).unwrap();
         mgr.revoke_all_for_user("user-1").await;
         assert!(mgr.verify_with_revocation(&old_token).await.is_err());
@@ -141,7 +151,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_revocation_does_not_affect_other_users() {
-        let mgr = JwtManager::new("test-secret", 24);
+        let mgr = JwtManager::new("test-secret-that-is-at-least-32-bytes-long", 24);
         let token_a = mgr.issue("user-a", "alice", vec!["admin".into()]).unwrap();
         let token_b = mgr.issue("user-b", "bob", vec!["viewer".into()]).unwrap();
 
@@ -152,7 +162,7 @@ mod tests {
 
     #[test]
     fn test_issue_with_permissions_and_session() {
-        let mgr = JwtManager::new("test-secret", 24);
+        let mgr = JwtManager::new("test-secret-that-is-at-least-32-bytes-long", 24);
         let token = mgr
             .issue_with_options(
                 "user-1",
@@ -169,7 +179,7 @@ mod tests {
 
     #[test]
     fn test_backward_compat_old_token_deserialize() {
-        let mgr = JwtManager::new("test-secret", 24);
+        let mgr = JwtManager::new("test-secret-that-is-at-least-32-bytes-long", 24);
         let token = mgr.issue("user-1", "alice", vec!["admin".into()]).unwrap();
         let claims = mgr.verify(&token).unwrap();
         assert!(claims.permissions.is_empty());

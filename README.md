@@ -74,7 +74,7 @@ Add kirino to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-kirino = "0.3"
+kirino = "0.5"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 ```

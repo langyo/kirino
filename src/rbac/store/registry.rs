@@ -109,3 +109,85 @@ where
         self.roles.keys().cloned().collect()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    enum TestPerm {
+        Read,
+        Write,
+        Delete,
+    }
+
+    impl Permission for TestPerm {
+        fn name(&self) -> &str {
+            match self {
+                TestPerm::Read => "read",
+                TestPerm::Write => "write",
+                TestPerm::Delete => "delete",
+            }
+        }
+
+        fn domain(&self) -> &'static str {
+            "test"
+        }
+    }
+
+    #[test]
+    fn test_simple_role() {
+        let role: SimpleRole<TestPerm> =
+            SimpleRole::new("editor", [TestPerm::Read, TestPerm::Write].into());
+        assert_eq!(role.role_name(), "editor");
+        assert!(role.permissions().contains(&TestPerm::Read));
+        assert!(role.permissions().contains(&TestPerm::Write));
+        assert!(!role.permissions().contains(&TestPerm::Delete));
+    }
+
+    #[test]
+    fn test_static_permission_registry() {
+        let perms: HashSet<TestPerm> = [TestPerm::Read, TestPerm::Write].into();
+        let reg = StaticPermissionRegistry::new(perms);
+
+        let all = reg.all_permissions();
+        assert_eq!(all.len(), 2);
+
+        assert!(reg.get_permission("read").is_some());
+        assert!(reg.get_permission("write").is_some());
+        assert!(reg.get_permission("delete").is_none());
+    }
+
+    #[test]
+    fn test_static_role_registry() {
+        let mut reg: StaticRoleRegistry<SimpleRole<TestPerm>, TestPerm> = StaticRoleRegistry::new();
+        reg.register(SimpleRole::new("viewer", [TestPerm::Read].into()));
+        reg.register(SimpleRole::new(
+            "admin",
+            [TestPerm::Read, TestPerm::Write, TestPerm::Delete].into(),
+        ));
+
+        assert!(reg.get_role("viewer").is_some());
+        assert!(reg.get_role("admin").is_some());
+        assert!(reg.get_role("unknown").is_none());
+
+        let names = reg.list_role_names();
+        assert_eq!(names.len(), 2);
+
+        let admin = reg.get_role("admin").unwrap();
+        assert_eq!(admin.permissions().len(), 3);
+    }
+
+    #[test]
+    fn test_static_role_registry_overwrite() {
+        let mut reg: StaticRoleRegistry<SimpleRole<TestPerm>, TestPerm> = StaticRoleRegistry::new();
+        reg.register(SimpleRole::new("role", [TestPerm::Read].into()));
+        reg.register(SimpleRole::new(
+            "role",
+            [TestPerm::Read, TestPerm::Write].into(),
+        ));
+
+        let role = reg.get_role("role").unwrap();
+        assert_eq!(role.permissions().len(), 2);
+    }
+}

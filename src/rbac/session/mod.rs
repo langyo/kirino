@@ -7,10 +7,12 @@ use std::{
 use uuid::Uuid;
 
 use crate::rbac::{
-    constraints::store::ConstraintStore,
     shared::Shared,
     traits::{AssignmentStore, Permission, Subject},
 };
+
+#[cfg(feature = "rbac-constraints")]
+use crate::rbac::constraints::store::ConstraintStore;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session<S: Subject> {
@@ -48,6 +50,7 @@ where
 {
     sessions: tokio::sync::RwLock<HashMap<Uuid, Session<S>>>,
     assignment_store: Shared<dyn AssignmentStore<S, P>>,
+    #[cfg(feature = "rbac-constraints")]
     constraint_store: Option<Shared<dyn ConstraintStore>>,
 }
 
@@ -60,11 +63,13 @@ where
         Self {
             sessions: tokio::sync::RwLock::new(HashMap::new()),
             assignment_store: Shared::from_arc_unsized(Arc::new(assignment_store)),
+            #[cfg(feature = "rbac-constraints")]
             constraint_store: None,
         }
     }
 
     #[must_use]
+    #[cfg(feature = "rbac-constraints")]
     pub fn with_constraint_store(mut self, store: impl ConstraintStore + 'static) -> Self {
         self.constraint_store = Some(Shared::from_arc_unsized(Arc::new(store)));
         self
@@ -81,18 +86,21 @@ where
         before - sessions.len()
     }
 
-    async fn validate_dsd(&self, roles: &HashSet<String>) -> anyhow::Result<()> {
-        if let Some(ref cs) = self.constraint_store {
-            let policies = cs.list_dsd_policies().await?;
-            let roles_vec: Vec<String> = roles.iter().cloned().collect();
-            for policy in &policies {
-                if !policy.validate(&roles_vec) {
-                    return Err(anyhow::anyhow!(
-                        "DSD policy '{}' violated for roles {:?}",
-                        policy.name,
-                        roles,
-                    ));
-                }
+    #[cfg(feature = "rbac-constraints")]
+    async fn validate_dsd_with_store(
+        &self,
+        roles: &HashSet<String>,
+        constraint_store: &Shared<dyn ConstraintStore>,
+    ) -> anyhow::Result<()> {
+        let policies = constraint_store.list_dsd_policies().await?;
+        let roles_vec: Vec<String> = roles.iter().cloned().collect();
+        for policy in &policies {
+            if !policy.validate(&roles_vec) {
+                return Err(anyhow::anyhow!(
+                    "DSD policy '{}' violated for roles {:?}",
+                    policy.name,
+                    roles,
+                ));
             }
         }
         Ok(())
@@ -115,7 +123,10 @@ where
         let assigned_set: HashSet<String> = assigned.into_iter().collect();
         active_roles.retain(|r| assigned_set.contains(r));
 
-        self.validate_dsd(&active_roles).await?;
+        #[cfg(feature = "rbac-constraints")]
+        if let Some(ref cs) = self.constraint_store {
+            self.validate_dsd_with_store(&active_roles, cs).await?;
+        }
 
         let session = Session {
             id: Uuid::now_v7(),
@@ -133,7 +144,7 @@ where
     async fn activate_role(&self, session_id: Uuid, role_name: &str) -> anyhow::Result<()> {
         let mut sessions = self.sessions.write().await;
         let session = sessions
-            .get_mut(&session_id)
+            .get(&session_id)
             .ok_or_else(|| anyhow::anyhow!("session not found"))?;
 
         if session.is_expired() {
@@ -150,9 +161,11 @@ where
         let mut test_roles = session.active_roles.clone();
         test_roles.insert(role_name.to_string());
 
-        drop(sessions);
-        self.validate_dsd(&test_roles).await?;
-        let mut sessions = self.sessions.write().await;
+        #[cfg(feature = "rbac-constraints")]
+        if let Some(ref cs) = self.constraint_store {
+            self.validate_dsd_with_store(&test_roles, cs).await?;
+        }
+
         let session = sessions
             .get_mut(&session_id)
             .ok_or_else(|| anyhow::anyhow!("session not found"))?;

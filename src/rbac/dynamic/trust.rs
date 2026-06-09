@@ -18,7 +18,7 @@ impl Default for TrustScore {
     fn default() -> Self {
         Self {
             value: 0.5,
-            confidence: 0.1,
+            confidence: 0.5,
             evidence_count: 0,
             last_updated: Utc::now(),
             degradation_rate: 0.01,
@@ -31,7 +31,7 @@ impl TrustScore {
     pub fn new(initial_value: f64) -> Self {
         Self {
             value: initial_value.clamp(0.0, 1.0),
-            confidence: 0.1,
+            confidence: 0.5,
             evidence_count: 0,
             last_updated: Utc::now(),
             degradation_rate: 0.01,
@@ -69,7 +69,7 @@ impl TrustScore {
         let hours = elapsed.as_secs_f64() / 3600.0;
         let decay = self.degradation_rate * hours;
         self.value = (self.value - decay).max(0.0);
-        self.confidence = (self.confidence - decay * 0.5).max(0.1);
+        self.confidence = (self.confidence - decay * 0.5).max(0.5);
         self.last_updated = Utc::now();
     }
 }
@@ -161,11 +161,7 @@ impl TrustDecayWorker {
     }
 
     pub fn hourly(store: Arc<dyn TrustScoreStore>) -> Self {
-        Self::new(
-            store,
-            Duration::from_secs(3600),
-            Duration::from_secs(3600),
-        )
+        Self::new(store, Duration::from_secs(3600), Duration::from_secs(3600))
     }
 
     #[allow(clippy::missing_errors_doc)]
@@ -245,7 +241,7 @@ mod tests {
     fn test_trust_score_default() {
         let ts = TrustScore::default();
         assert!((ts.value - 0.5).abs() < f64::EPSILON);
-        assert!((ts.confidence - 0.1).abs() < f64::EPSILON);
+        assert!((ts.confidence - 0.5).abs() < f64::EPSILON);
         assert_eq!(ts.evidence_count, 0);
     }
 

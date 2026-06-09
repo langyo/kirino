@@ -86,6 +86,7 @@ pub trait PersistentAuditStore: Send + Sync {
     ) -> anyhow::Result<u64>;
 }
 
+#[cfg(feature = "rbac-dynamic")]
 #[async_trait]
 pub trait PersistentTrustStore: Send + Sync {
     async fn load_trust_score(
@@ -106,10 +107,6 @@ pub trait PersistentStore:
 }
 
 impl<T> PersistentStore for T where
-    T: PersistentAssignmentStore
-        + PersistentRoleStore
-        + PersistentConstraintStore
-        + Send
-        + Sync,
+    T: PersistentAssignmentStore + PersistentRoleStore + PersistentConstraintStore + Send + Sync
 {
 }

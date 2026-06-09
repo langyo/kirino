@@ -13,11 +13,9 @@ use uuid::Uuid;
 use crate::auth::credential::basic::JwtManager;
 #[cfg(feature = "auth-password")]
 use crate::auth::passport::static_password::{hash_password, verify_password};
-
 use crate::{
     models::identity::Identity,
     rbac::{
-        dynamic::arbiter::AuthorizationArbiter,
         engine::RbacEngine,
         shared::Shared,
         store::{
@@ -28,6 +26,9 @@ use crate::{
         traits::{AssignmentStore, Permission, Role},
     },
 };
+
+#[cfg(feature = "rbac-dynamic")]
+use crate::rbac::dynamic::arbiter::AuthorizationArbiter;
 
 #[derive(Debug, Clone)]
 struct RateLimitEntry {
@@ -112,50 +113,41 @@ impl LoginRateLimiter {
         }
     }
 
-    pub async fn check(&self, key: &str) -> Result<()> {
+    pub async fn check_and_record_failure(&self, key: &str) -> Result<()> {
         let mut entries = self.entries.write().await;
         let now = Instant::now();
 
-        if let Some(entry) = entries.get_mut(key) {
-            let elapsed = now.duration_since(entry.window_start);
-            let total_window = std::time::Duration::from_secs(self.window_secs + self.lockout_secs);
-            let window_duration = std::time::Duration::from_secs(self.window_secs);
-
-            let should_reset = elapsed > total_window
-                || (elapsed > window_duration && entry.attempts < self.max_attempts);
-
-            if should_reset {
-                entry.attempts = 0;
-                entry.window_start = now;
-            }
-
-            if entry.attempts >= self.max_attempts {
-                let remaining =
-                    std::time::Duration::from_secs(self.window_secs + self.lockout_secs)
-                        .checked_sub(elapsed)
-                        .expect("total_window > elapsed should hold");
-                if remaining > std::time::Duration::ZERO {
-                    return Err(anyhow!(
-                        "too many login attempts, try again in {} seconds",
-                        remaining.as_secs()
-                    ));
-                }
-                entry.attempts = 0;
-                entry.window_start = now;
-            }
-        }
-
-        Ok(())
-    }
-
-    pub async fn record_failure(&self, key: &str) {
-        let mut entries = self.entries.write().await;
-        let now = Instant::now();
         let entry = entries.entry(key.to_string()).or_insert(RateLimitEntry {
             attempts: 0,
             window_start: now,
         });
+
+        let elapsed = now.duration_since(entry.window_start);
+        let total_window = std::time::Duration::from_secs(self.window_secs + self.lockout_secs);
+        let window_duration = std::time::Duration::from_secs(self.window_secs);
+
+        let should_reset = elapsed > total_window
+            || (elapsed > window_duration && entry.attempts < self.max_attempts);
+
+        if should_reset {
+            entry.attempts = 0;
+            entry.window_start = now;
+        }
+
+        if entry.attempts >= self.max_attempts {
+            let remaining = total_window.saturating_sub(elapsed);
+            if remaining > std::time::Duration::ZERO {
+                return Err(anyhow!(
+                    "too many login attempts, try again in {} seconds",
+                    remaining.as_secs()
+                ));
+            }
+            entry.attempts = 0;
+            entry.window_start = now;
+        }
+
         entry.attempts += 1;
+        Ok(())
     }
 
     pub async fn reset(&self, key: &str) {
@@ -302,8 +294,10 @@ where
     db: DB,
     jwt: JwtManager,
     engine: Shared<RbacEngine<StringSubject, P, R, A>>,
+    #[cfg(feature = "rbac-dynamic")]
     arbiter: Option<Shared<AuthorizationArbiter>>,
     rate_limiter: LoginRateLimiter,
+    register_rate_limiter: LoginRateLimiter,
     first_user_role: String,
     default_role: String,
     auto_admin_first_user: bool,
@@ -329,8 +323,10 @@ where
             db,
             jwt: JwtManager::new(jwt_secret, jwt_expiration_hours),
             engine,
+            #[cfg(feature = "rbac-dynamic")]
             arbiter: None,
             rate_limiter: LoginRateLimiter::new(5, 300, 900),
+            register_rate_limiter: LoginRateLimiter::new(3, 300, 1800),
             first_user_role: first_user_role.to_string(),
             default_role: default_role.to_string(),
             auto_admin_first_user: false,
@@ -350,11 +346,13 @@ where
     }
 
     #[must_use]
+    #[cfg(feature = "rbac-dynamic")]
     pub fn with_arbiter(mut self, arbiter: AuthorizationArbiter) -> Self {
         self.arbiter = Some(Shared::new(arbiter));
         self
     }
 
+    #[cfg(feature = "rbac-dynamic")]
     pub fn arbiter(&self) -> Option<Shared<AuthorizationArbiter>> {
         self.arbiter.clone()
     }
@@ -373,6 +371,10 @@ where
         password: &str,
         display_name: Option<&str>,
     ) -> Result<UserInfo> {
+        self.register_rate_limiter
+            .check_and_record_failure(username)
+            .await?;
+
         validate_username(username)?;
         validate_password(password)?;
 
@@ -414,22 +416,25 @@ where
         Ok(user.to_public())
     }
 
-    pub async fn login(&self, username: &str, password: &str) -> Result<LoginResult> {
-        self.rate_limiter.check(username).await?;
+    const DUMMY_HASH: &str =
+        "$argon2id$v=19$m=19456,t=2,p=1$dummy salts are not used$dummyhashvaluethatisnotused";
 
-        let user = self
-            .db
-            .find_by_username(username)
-            .await?
-            .ok_or_else(|| anyhow!("invalid credentials"))?;
+    pub async fn login(&self, username: &str, password: &str) -> Result<LoginResult> {
+        self.rate_limiter.check_and_record_failure(username).await?;
+
+        let user = match self.db.find_by_username(username).await? {
+            Some(u) => u,
+            None => {
+                let _ = verify_password(password, Self::DUMMY_HASH);
+                return Err(anyhow!("invalid credentials"));
+            }
+        };
 
         if !user.is_active {
-            self.rate_limiter.record_failure(username).await;
             return Err(anyhow!("invalid credentials"));
         }
 
         if !verify_password(password, &user.password_hash)? {
-            self.rate_limiter.record_failure(username).await;
             return Err(anyhow!("invalid credentials"));
         }
 
@@ -479,6 +484,7 @@ where
         self.engine.check(&subject, permission).await
     }
 
+    #[cfg(feature = "rbac-dynamic")]
     pub async fn check_static_and_dynamic(
         &self,
         user_id: &str,
@@ -578,10 +584,11 @@ where
         ))
     }
 
-    pub async fn logout<SM>(&self, session_id: Uuid, session_mgr: &SM) -> Result<()>
+    pub async fn logout<SM>(&self, user_id: &str, session_id: Uuid, session_mgr: &SM) -> Result<()>
     where
         SM: crate::rbac::session::SessionManager<StringSubject>,
     {
+        self.jwt.revoke_all_for_user(user_id).await;
         session_mgr.destroy_session(session_id).await
     }
 }
