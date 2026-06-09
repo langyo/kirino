@@ -1,5 +1,5 @@
 use kirino::{
-    database::sql::InMemoryUserDatabase,
+    database::memory::InMemoryUserDatabase,
     service::login::{build_default_engine, AuthService},
 };
 

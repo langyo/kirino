@@ -86,7 +86,7 @@ mod tests {
             json.push_str(&format!(r#","email":"{e}""#));
         }
         json.push('}');
-        let b64 = crate::utils::base64::decode_url_free_encode(json.as_bytes());
+        let b64 = crate::utils::base64::url_safe_encode(json.as_bytes());
         format!("header.{b64}.signature")
     }
 
@@ -101,7 +101,7 @@ mod tests {
 
     #[test]
     fn test_jwt_sso_missing_sub() {
-        let payload = crate::utils::base64::decode_url_free_encode(b"{\"email\":\"a@b.com\"}");
+        let payload = crate::utils::base64::url_safe_encode(b"{\"email\":\"a@b.com\"}");
         let token = format!("header.{payload}.sig");
         let v = SsoVerifier::new("test".to_string());
         assert!(v.verify(&token).is_err());

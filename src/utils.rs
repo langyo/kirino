@@ -71,7 +71,7 @@ pub mod base64 {
         result
     }
 
-    pub fn decode_url_free_encode(input: &[u8]) -> String {
+    pub fn url_safe_encode(input: &[u8]) -> String {
         let encoded = encode(input);
         encoded
             .trim_end_matches('=')

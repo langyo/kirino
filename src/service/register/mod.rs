@@ -2,7 +2,7 @@
 mod tests {
 
     use crate::{
-        database::sql::InMemoryUserDatabase,
+        database::memory::InMemoryUserDatabase,
         rbac::{
             store::memory::InMemoryAssignmentStore, subject::StringSubject, traits::AssignmentStore,
         },

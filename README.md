@@ -132,7 +132,7 @@ Or use the built-in `AuthService` for a complete setup:
 
 ```rust,no_run
 use kirino::service::login::{AuthService, build_default_engine};
-use kirino::database::sql::InMemoryUserDatabase;
+use kirino::database::memory::InMemoryUserDatabase;
 
 let db = InMemoryUserDatabase::new();
 let engine = build_default_engine();
