@@ -249,4 +249,95 @@ mod tests {
             .unwrap()
             .is_none());
     }
+
+    #[tokio::test]
+    async fn test_revoke_nonexistent_role_noop() {
+        let store = InMemoryAssignmentStore::<TestSubject, TestPerm>::new();
+        let subj = TestSubject("user1".to_string());
+        store.revoke_role(&subj, "nonexistent").await.unwrap();
+        assert!(store.roles_of(&subj).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_revoke_nonexistent_subject_noop() {
+        let store = InMemoryAssignmentStore::<TestSubject, TestPerm>::new();
+        let subj = TestSubject("ghost".to_string());
+        store.revoke_role(&subj, "admin").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_roles_of_nonexistent_subject() {
+        let store = InMemoryAssignmentStore::<TestSubject, TestPerm>::new();
+        let subj = TestSubject("ghost".to_string());
+        let roles = store.roles_of(&subj).await.unwrap();
+        assert!(roles.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_extra_perms_nonexistent_subject() {
+        let store = InMemoryAssignmentStore::<TestSubject, TestPerm>::new();
+        let subj = TestSubject("ghost".to_string());
+        let perms = store.extra_permissions(&subj).await.unwrap();
+        assert!(perms.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_denied_perms_nonexistent_subject() {
+        let store = InMemoryAssignmentStore::<TestSubject, TestPerm>::new();
+        let subj = TestSubject("ghost".to_string());
+        let perms = store.denied_permissions(&subj).await.unwrap();
+        assert!(perms.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_subjects_with_role_nonexistent() {
+        let store = InMemoryAssignmentStore::<TestSubject, TestPerm>::new();
+        assert!(store
+            .subjects_with_role("nonexistent")
+            .await
+            .unwrap()
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_extra_perms_overwrite() {
+        let store = InMemoryAssignmentStore::<TestSubject, TestPerm>::new();
+        let subj = TestSubject("user1".to_string());
+
+        let first: HashSet<TestPerm> = [TestPerm("read")].into_iter().collect();
+        store.set_extra_permissions(&subj, first).await.unwrap();
+
+        let second: HashSet<TestPerm> = [TestPerm("write")].into_iter().collect();
+        store.set_extra_permissions(&subj, second).await.unwrap();
+
+        let got = store.extra_permissions(&subj).await.unwrap();
+        assert!(!got.contains(&TestPerm("read")));
+        assert!(got.contains(&TestPerm("write")));
+    }
+
+    #[tokio::test]
+    async fn test_role_store_list_roles_empty() {
+        let store = InMemoryRoleStore::<TestPerm>::new();
+        assert!(store.list_roles().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_role_store_delete_nonexistent() {
+        let store = InMemoryRoleStore::<TestPerm>::new();
+        assert!(!store.delete_role("ghost").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_role_store_duplicate_create_overwrites() {
+        let store = InMemoryRoleStore::<TestPerm>::new();
+        let p1: HashSet<TestPerm> = [TestPerm("read")].into_iter().collect();
+        let p2: HashSet<TestPerm> = [TestPerm("write")].into_iter().collect();
+
+        store.create_role("role", p1).await.unwrap();
+        store.create_role("role", p2).await.unwrap();
+
+        let got = store.get_role_permissions("role").await.unwrap().unwrap();
+        assert_eq!(got.len(), 1);
+        assert!(got.contains(&TestPerm("write")));
+    }
 }

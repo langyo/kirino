@@ -955,4 +955,112 @@ mod tests {
         let alerts = engine.evaluate(&entry).await;
         assert!(alerts.is_empty());
     }
+
+    #[test]
+    fn test_category_sensitive_condition() {
+        let cond = AuditCondition::CategorySensitive { min_weight: 0.4 };
+        let entry = make_entry("u1", "write", true, 0.3);
+        assert!(cond.evaluate(&entry));
+
+        let entry_low = {
+            let mut e = make_entry("u1", "write", true, 0.3);
+            if let Some(ref mut v) = e.verdict {
+                v.sub_scores.sensitivity = 0.1;
+            }
+            e
+        };
+        assert!(!cond.evaluate(&entry_low));
+    }
+
+    #[test]
+    fn test_domain_mismatch_condition() {
+        let cond = AuditCondition::DomainMismatch { min_weight: 0.3 };
+        let entry = {
+            let mut e = make_entry("u1", "write", true, 0.3);
+            if let Some(ref mut v) = e.verdict {
+                v.sub_scores.domain_mismatch = 0.5;
+            }
+            e
+        };
+        assert!(cond.evaluate(&entry));
+
+        let entry_low = make_entry("u1", "write", true, 0.3);
+        assert!(!cond.evaluate(&entry_low));
+    }
+
+    #[test]
+    fn test_composite_any_operator() {
+        let cond = AuditCondition::Composite {
+            conditions: vec![
+                AuditCondition::Denied,
+                AuditCondition::HighRisk { threshold: 0.9 },
+            ],
+            operator: LogicalOp::Any,
+        };
+
+        let denied_entry = make_entry("u1", "write", false, 0.1);
+        assert!(cond.evaluate(&denied_entry));
+
+        let high_risk_entry = make_entry("u1", "write", true, 0.95);
+        assert!(cond.evaluate(&high_risk_entry));
+
+        let normal_entry = make_entry("u1", "write", true, 0.1);
+        assert!(!cond.evaluate(&normal_entry));
+    }
+
+    #[test]
+    fn test_disabled_rule_not_evaluated() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .unwrap();
+        rt.block_on(async {
+            let engine = InMemoryAuditPolicyEngine::new();
+            engine
+                .add_rule(AuditRule {
+                    id: "disabled-rule".to_string(),
+                    name: "should-not-fire".to_string(),
+                    enabled: false,
+                    condition: AuditCondition::Denied,
+                    action: AuditAction::Alert {
+                        message: "should not fire".to_string(),
+                        severity: AuditSeverity::Warning,
+                    },
+                    cooldown_secs: 0,
+                })
+                .await;
+
+            let entry = make_entry("u1", "write", false, 0.5);
+            let alerts = engine.evaluate(&entry).await;
+            assert!(alerts.is_empty());
+        });
+    }
+
+    #[test]
+    fn test_entry_without_verdict() {
+        let entry = AuditEntry {
+            id: 1,
+            subject_id: "u1".to_string(),
+            subject_type: "user".to_string(),
+            permission: "read".to_string(),
+            endpoint: "/test".to_string(),
+            granted: false,
+            created_at: Utc::now(),
+            verdict: None,
+        };
+
+        let cond = AuditCondition::HighRisk { threshold: 0.5 };
+        assert!(!cond.evaluate(&entry));
+
+        let cond = AuditCondition::CategorySensitive { min_weight: 0.1 };
+        assert!(!cond.evaluate(&entry));
+
+        let cond = AuditCondition::DomainMismatch { min_weight: 0.1 };
+        assert!(!cond.evaluate(&entry));
+
+        let cond = AuditCondition::TrustBelow { threshold: 0.5 };
+        assert!(!cond.evaluate(&entry));
+
+        assert!(AuditCondition::Denied.evaluate(&entry));
+    }
 }

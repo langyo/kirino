@@ -28,9 +28,14 @@ impl SmsVerifier {
     }
 
     pub async fn send_code(&self, phone: &str, code: &str) -> Result<()> {
+        self.send_code_with_ttl(phone, code, Duration::from_secs(300))
+            .await
+    }
+
+    pub async fn send_code_with_ttl(&self, phone: &str, code: &str, ttl: Duration) -> Result<()> {
         let pending = PendingCode {
             code: code.to_string(),
-            expires_at: std::time::Instant::now() + Duration::from_secs(300),
+            expires_at: std::time::Instant::now() + ttl,
         };
         self.codes.write().await.insert(phone.to_string(), pending);
         tracing::debug!(
@@ -107,5 +112,33 @@ mod tests {
         v.send_code("+222", "222222").await.unwrap();
         assert!(v.verify_code("+111", "111111").await.unwrap());
         assert!(v.verify_code("+222", "222222").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_expired_code_rejected() {
+        let v = SmsVerifier::new("+1234567890".to_string());
+        v.send_code_with_ttl("+9876543210", "123456", Duration::from_millis(1))
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        assert!(!v.verify_code("+9876543210", "123456").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_resend_replaces_old_code() {
+        let v = SmsVerifier::new("+1234567890".to_string());
+        v.send_code("+9876543210", "111111").await.unwrap();
+        v.send_code("+9876543210", "222222").await.unwrap();
+        assert!(v.verify_code("+9876543210", "222222").await.unwrap());
+    }
+
+    #[test]
+    fn test_generate_code_different_each_time() {
+        let codes: Vec<String> = (0..10).map(|_| SmsVerifier::generate_code(6)).collect();
+        let unique: std::collections::HashSet<_> = codes.iter().collect();
+        assert!(
+            unique.len() > 1,
+            "generated codes should not all be identical"
+        );
     }
 }

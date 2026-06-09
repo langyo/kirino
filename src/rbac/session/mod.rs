@@ -391,4 +391,125 @@ mod tests {
         let s2 = mgr.assignment_store();
         assert!(s1.ptr_eq(&s2));
     }
+
+    #[tokio::test]
+    async fn test_session_expiry() {
+        let mgr = make_mgr(make_store());
+        let subj = StringSubject::new("user1");
+        let session = mgr
+            .create_session(&subj, HashSet::new(), Duration::milliseconds(10))
+            .await
+            .unwrap();
+        assert!(!session.is_expired());
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        assert!(session.is_expired());
+    }
+
+    #[tokio::test]
+    async fn test_activate_on_expired_session_fails() {
+        let mgr = make_mgr(make_store());
+        let store = mgr.assignment_store();
+        let subj = StringSubject::new("user1");
+        store.assign_role(&subj, "admin").await.unwrap();
+
+        let session = mgr
+            .create_session(&subj, HashSet::new(), Duration::milliseconds(10))
+            .await
+            .unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        assert!(mgr.activate_role(session.id, "admin").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_deactivate_on_expired_session_fails() {
+        let mgr = make_mgr(make_store());
+        let subj = StringSubject::new("user1");
+
+        let session = mgr
+            .create_session(
+                &subj,
+                ["admin".to_string()].into(),
+                Duration::milliseconds(10),
+            )
+            .await
+            .unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        assert!(mgr.deactivate_role(session.id, "admin").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_activate_invalid_session_fails() {
+        let mgr = make_mgr(make_store());
+        assert!(mgr
+            .activate_role(uuid::Uuid::now_v7(), "admin")
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn test_deactivate_invalid_session_fails() {
+        let mgr = make_mgr(make_store());
+        assert!(mgr
+            .deactivate_role(uuid::Uuid::now_v7(), "admin")
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn test_deactivate_role_not_in_set_is_noop() {
+        let mgr = make_mgr(make_store());
+        let store = mgr.assignment_store();
+        let subj = StringSubject::new("user1");
+        store.assign_role(&subj, "admin").await.unwrap();
+
+        let session = mgr
+            .create_session(&subj, ["admin".to_string()].into(), Duration::hours(1))
+            .await
+            .unwrap();
+
+        mgr.deactivate_role(session.id, "viewer").await.unwrap();
+        let got = mgr.get_session(session.id).await.unwrap().unwrap();
+        assert!(got.active_roles.contains("admin"));
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_expired() {
+        let mgr = make_mgr(make_store());
+        let subj = StringSubject::new("user1");
+
+        let s1 = mgr
+            .create_session(&subj, HashSet::new(), Duration::milliseconds(10))
+            .await
+            .unwrap();
+        let _s2 = mgr
+            .create_session(&subj, HashSet::new(), Duration::hours(1))
+            .await
+            .unwrap();
+
+        assert!(mgr.get_session(s1.id).await.unwrap().is_some());
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+        let removed = mgr.cleanup_expired().await;
+        assert_eq!(removed, 1);
+        assert!(mgr.get_session(s1.id).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_no_expired() {
+        let mgr = make_mgr(make_store());
+        let subj = StringSubject::new("user1");
+        mgr.create_session(&subj, HashSet::new(), Duration::hours(1))
+            .await
+            .unwrap();
+        mgr.create_session(&subj, HashSet::new(), Duration::hours(2))
+            .await
+            .unwrap();
+        assert_eq!(mgr.cleanup_expired().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_destroy_invalid_session_is_ok() {
+        let mgr = make_mgr(make_store());
+        mgr.destroy_session(uuid::Uuid::now_v7()).await.unwrap();
+    }
 }

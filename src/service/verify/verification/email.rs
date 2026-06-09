@@ -28,9 +28,14 @@ impl EmailVerifier {
     }
 
     pub async fn send_code(&self, address: &str, code: &str) -> Result<()> {
+        self.send_code_with_ttl(address, code, Duration::from_secs(300))
+            .await
+    }
+
+    pub async fn send_code_with_ttl(&self, address: &str, code: &str, ttl: Duration) -> Result<()> {
         let pending = PendingCode {
             code: code.to_string(),
-            expires_at: std::time::Instant::now() + Duration::from_secs(300),
+            expires_at: std::time::Instant::now() + ttl,
         };
         self.codes
             .write()
@@ -123,5 +128,23 @@ mod tests {
         v.send_code("b@example.com", "222222").await.unwrap();
         assert!(v.verify_code("a@example.com", "111111").await.unwrap());
         assert!(v.verify_code("b@example.com", "222222").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_expired_code_rejected() {
+        let v = EmailVerifier::new("noreply@example.com".to_string());
+        v.send_code_with_ttl("user@example.com", "123456", Duration::from_millis(1))
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        assert!(!v.verify_code("user@example.com", "123456").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_resend_replaces_old_code() {
+        let v = EmailVerifier::new("noreply@example.com".to_string());
+        v.send_code("user@example.com", "111111").await.unwrap();
+        v.send_code("user@example.com", "222222").await.unwrap();
+        assert!(v.verify_code("user@example.com", "222222").await.unwrap());
     }
 }

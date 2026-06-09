@@ -128,7 +128,7 @@ impl<S: ConstraintStore> ConstraintValidator<S> {
 mod tests {
     use super::*;
     use crate::rbac::constraints::policies::{
-        CardinalityConstraint, DsdPolicy, PrerequisiteConstraint, SsdPolicy,
+        CardinalityConstraint, DsdPolicy, PrerequisiteConstraint, SsdPolicy, TemporalConstraint,
     };
     use crate::rbac::constraints::store::InMemoryConstraintStore;
 
@@ -168,6 +168,25 @@ mod tests {
             .validate_ssd(&["admin".to_string()], "auditor")
             .await
             .is_err());
+    }
+
+    #[tokio::test]
+    async fn test_validate_dsd_pass() {
+        let store = InMemoryConstraintStore::new();
+        store
+            .add_dsd_policy(DsdPolicy::new(
+                "exclusive",
+                ["admin".to_string(), "auditor".to_string()].into(),
+                2,
+            ))
+            .await
+            .unwrap();
+
+        let validator = ConstraintValidator::new(store);
+        assert!(validator
+            .validate_dsd(&["viewer".to_string()], "admin")
+            .await
+            .is_ok());
     }
 
     #[tokio::test]
@@ -253,5 +272,110 @@ mod tests {
             .validate_assignment(&["viewer".to_string()], "admin", 0)
             .await
             .is_err());
+    }
+
+    #[tokio::test]
+    async fn test_validate_temporal_pass() {
+        let store = InMemoryConstraintStore::new();
+        let now = chrono::Utc::now();
+        store
+            .add_temporal_constraint(TemporalConstraint::new(
+                "seasonal",
+                now - chrono::Duration::hours(1),
+                now + chrono::Duration::hours(1),
+            ))
+            .await
+            .unwrap();
+
+        let validator = ConstraintValidator::new(store);
+        assert!(validator.validate_temporal("seasonal").await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_validate_temporal_fail() {
+        let store = InMemoryConstraintStore::new();
+        let now = chrono::Utc::now();
+        store
+            .add_temporal_constraint(TemporalConstraint::new(
+                "expired_role",
+                now - chrono::Duration::hours(2),
+                now - chrono::Duration::hours(1),
+            ))
+            .await
+            .unwrap();
+
+        let validator = ConstraintValidator::new(store);
+        assert!(validator.validate_temporal("expired_role").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_validate_temporal_nonexistent_role() {
+        let store = InMemoryConstraintStore::new();
+        let now = chrono::Utc::now();
+        store
+            .add_temporal_constraint(TemporalConstraint::new(
+                "seasonal",
+                now - chrono::Duration::hours(1),
+                now + chrono::Duration::hours(1),
+            ))
+            .await
+            .unwrap();
+
+        let validator = ConstraintValidator::new(store);
+        assert!(validator.validate_temporal("other").await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_validate_assignment_cardinality_fail() {
+        let store = InMemoryConstraintStore::new();
+        store
+            .add_cardinality_constraint(CardinalityConstraint::new("admin", 1))
+            .await
+            .unwrap();
+
+        let validator = ConstraintValidator::new(store);
+        assert!(validator
+            .validate_assignment(&[], "admin", 1)
+            .await
+            .is_err());
+        assert!(validator
+            .validate_assignment(&[], "viewer", 1)
+            .await
+            .is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_validate_assignment_temporal_fail() {
+        let store = InMemoryConstraintStore::new();
+        let now = chrono::Utc::now();
+        store
+            .add_temporal_constraint(TemporalConstraint::new(
+                "expired_role",
+                now - chrono::Duration::hours(2),
+                now - chrono::Duration::hours(1),
+            ))
+            .await
+            .unwrap();
+
+        let validator = ConstraintValidator::new(store);
+        assert!(validator
+            .validate_assignment(&[], "expired_role", 0)
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn test_empty_store_pass_all() {
+        let store = InMemoryConstraintStore::new();
+        let validator = ConstraintValidator::new(store);
+        assert!(validator.validate_ssd(&[], "admin").await.is_ok());
+        assert!(validator.validate_dsd(&[], "admin").await.is_ok());
+        assert!(validator.validate_cardinality("admin", 100).await.is_ok());
+        assert!(validator.validate_prerequisite("admin", &[]).await.is_ok());
+        assert!(validator.validate_temporal("admin").await.is_ok());
+        assert!(validator
+            .validate_assignment(&[], "admin", 100)
+            .await
+            .is_ok());
     }
 }

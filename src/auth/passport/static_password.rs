@@ -52,4 +52,33 @@ mod tests {
         assert!(verify_password("test123", &hash).unwrap());
         assert!(!verify_password("wrong", &hash).unwrap());
     }
+
+    #[test]
+    fn test_hash_uniqueness() {
+        let h1 = hash_password("same-password").unwrap();
+        let h2 = hash_password("same-password").unwrap();
+        assert_ne!(h1, h2, "same password should produce different hashes");
+        assert!(verify_password("same-password", &h1).unwrap());
+        assert!(verify_password("same-password", &h2).unwrap());
+    }
+
+    #[test]
+    fn test_invalid_hash_format() {
+        assert!(verify_password("anything", "not-a-valid-phc-hash").is_err());
+        assert!(verify_password("anything", "").is_err());
+    }
+
+    #[test]
+    fn test_empty_password() {
+        let hash = hash_password("").unwrap();
+        assert!(verify_password("", &hash).unwrap());
+        assert!(!verify_password("x", &hash).unwrap());
+    }
+
+    #[test]
+    fn test_unicode_password() {
+        let hash = hash_password("密码🔑安全123!aA").unwrap();
+        assert!(verify_password("密码🔑安全123!aA", &hash).unwrap());
+        assert!(!verify_password("密码🔑安全123!aB", &hash).unwrap());
+    }
 }
