@@ -371,6 +371,6 @@ mod tests {
             .roles_of(&TestSubject("user1".to_string()))
             .await
             .unwrap();
-        assert!(roles.len() >= 1);
+        assert!(!roles.is_empty());
     }
 }
