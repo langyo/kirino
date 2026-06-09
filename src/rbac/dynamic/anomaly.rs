@@ -33,6 +33,7 @@ pub struct AnomalyDetector {
     pub category_profile: HashMap<ActionCategory, f64>,
     pub baseline: Option<BehaviorBaseline>,
     total_observed: u64,
+    history: VecDeque<ActionRecord>,
 }
 
 impl AnomalyDetector {
@@ -44,6 +45,7 @@ impl AnomalyDetector {
             category_profile: HashMap::new(),
             baseline: None,
             total_observed: 0,
+            history: VecDeque::with_capacity(BASELINE_MIN_SAMPLES),
         }
     }
 
@@ -75,12 +77,19 @@ impl AnomalyDetector {
         if self.recent_actions.len() >= self.window_size {
             self.recent_actions.pop_front();
         }
-        self.recent_actions.push_back(record);
+        self.recent_actions.push_back(record.clone());
+
+        // Collect all observations until baseline is built
+        if self.baseline.is_none() {
+            self.history.push_back(record);
+        }
 
         self.recompute_profile();
 
         if self.is_baseline_ready() && self.baseline.is_none() {
             self.build_baseline_from_history();
+            self.history.clear(); // no longer needed
+            self.history.shrink_to_fit();
         }
 
         if !self.is_baseline_ready() {
@@ -154,13 +163,13 @@ impl AnomalyDetector {
             return;
         }
 
-        let n = self.recent_actions.len() as f64;
+        let n = self.history.len() as f64;
         if n == 0.0 {
             return;
         }
 
         let mut counts: HashMap<ActionCategory, f64> = HashMap::new();
-        for rec in &self.recent_actions {
+        for rec in &self.history {
             *counts.entry(rec.category).or_insert(0.0) += 1.0;
         }
 
@@ -168,7 +177,7 @@ impl AnomalyDetector {
             counts.iter().map(|(&k, &c)| (k, c / n)).collect();
 
         let mut category_stdevs: HashMap<ActionCategory, f64> = HashMap::new();
-        for rec in &self.recent_actions {
+        for rec in &self.history {
             if let Some(&mean) = category_means.get(&rec.category) {
                 let diff = 1.0 - mean;
                 *category_stdevs.entry(rec.category).or_insert(0.0) += diff * diff;
@@ -285,15 +294,18 @@ mod tests {
     #[test]
     fn test_build_baseline_from_history() {
         let mut det = AnomalyDetector::new(200);
-        det.total_observed = 200;
-        for _ in 0..150 {
-            det.observe(&make_request(ActionCategory::ReadOnly));
-        }
-        for _ in 0..50 {
-            det.observe(&make_request(ActionCategory::FileWrite));
+
+        // Fill first 100 observations with mixed categories so auto-build
+        // at 100 uses a representative baseline from the dedicated history buffer.
+        for i in 0..BASELINE_MIN_SAMPLES {
+            if i < 75 {
+                det.observe(&make_request(ActionCategory::ReadOnly));
+            } else {
+                det.observe(&make_request(ActionCategory::FileWrite));
+            }
         }
 
-        det.build_baseline_from_history();
+        // Baseline should have been auto-built at the 100th observation
         let baseline = det.baseline.as_ref().unwrap();
 
         let ro_mean = baseline
@@ -316,6 +328,9 @@ mod tests {
             .copied()
             .unwrap_or(0.0);
         assert!(ro_stdev > 0.0);
+
+        // Verify history was cleared after baseline build
+        assert!(det.history.is_empty(), "history should be cleared after baseline build");
     }
 
     #[test]
