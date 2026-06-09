@@ -1,4 +1,3 @@
-use anyhow::Result;
 use chrono::{DateTime, Utc};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -6,6 +5,7 @@ use uuid::Uuid;
 
 use async_trait::async_trait;
 
+use crate::error::KirinoResult;
 use crate::models::identity::Identity;
 
 fn identity_id(identity: &Identity) -> Uuid {
@@ -19,11 +19,11 @@ fn identity_id(identity: &Identity) -> Uuid {
 
 #[async_trait]
 pub trait IdentityProvider: Send + Sync {
-    async fn create(&self, record: IdentityRecord) -> Result<()>;
-    async fn get(&self, id: Uuid) -> Result<Option<IdentityRecord>>;
-    async fn find_by_username(&self, username: &str) -> Result<Option<IdentityRecord>>;
-    async fn delete(&self, id: Uuid) -> Result<bool>;
-    async fn list(&self) -> Result<Vec<IdentityRecord>>;
+    async fn create(&self, record: IdentityRecord) -> KirinoResult<()>;
+    async fn get(&self, id: Uuid) -> KirinoResult<Option<IdentityRecord>>;
+    async fn find_by_username(&self, username: &str) -> KirinoResult<Option<IdentityRecord>>;
+    async fn delete(&self, id: Uuid) -> KirinoResult<bool>;
+    async fn list(&self) -> KirinoResult<Vec<IdentityRecord>>;
 }
 
 #[derive(Debug, Clone)]
@@ -57,13 +57,13 @@ impl Default for InMemoryIdentityProvider {
 
 #[async_trait]
 impl IdentityProvider for InMemoryIdentityProvider {
-    async fn create(&self, record: IdentityRecord) -> Result<()> {
+    async fn create(&self, record: IdentityRecord) -> KirinoResult<()> {
         let mut records = self.records.write().await;
         records.push(record);
         Ok(())
     }
 
-    async fn get(&self, id: Uuid) -> Result<Option<IdentityRecord>> {
+    async fn get(&self, id: Uuid) -> KirinoResult<Option<IdentityRecord>> {
         let records = self.records.read().await;
         Ok(records
             .iter()
@@ -71,19 +71,19 @@ impl IdentityProvider for InMemoryIdentityProvider {
             .cloned())
     }
 
-    async fn find_by_username(&self, username: &str) -> Result<Option<IdentityRecord>> {
+    async fn find_by_username(&self, username: &str) -> KirinoResult<Option<IdentityRecord>> {
         let records = self.records.read().await;
         Ok(records.iter().find(|r| r.username == username).cloned())
     }
 
-    async fn delete(&self, id: Uuid) -> Result<bool> {
+    async fn delete(&self, id: Uuid) -> KirinoResult<bool> {
         let mut records = self.records.write().await;
         let before = records.len();
         records.retain(|r| identity_id(&r.identity) != id);
         Ok(records.len() < before)
     }
 
-    async fn list(&self) -> Result<Vec<IdentityRecord>> {
+    async fn list(&self) -> KirinoResult<Vec<IdentityRecord>> {
         let records = self.records.read().await;
         Ok(records.clone())
     }
