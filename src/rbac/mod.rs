@@ -50,7 +50,10 @@ pub mod prelude {
         domain::{DomainMatch, DomainScope, TaskDomain},
         metrics::{ActionCategory, ActionRequest, ActionSensitivity},
         policy::{default_dynamic_policy, DynamicPolicy},
-        trust::{InMemoryTrustScoreStore, TrustDecayHandle, TrustDecayWorker, TrustScore, TrustScoreStore},
+        trust::{
+            InMemoryTrustScoreStore, TrustDecayHandle, TrustDecayWorker, TrustScore,
+            TrustScoreStore,
+        },
         verdict::{
             ActionOutcome, AuthorizationVerdict, AutonomyLevel, RiskScore, Strategy, SubScores,
         },

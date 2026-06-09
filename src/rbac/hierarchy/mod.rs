@@ -107,10 +107,7 @@ where
     false
 }
 
-pub fn detect_cycle<P>(
-    role_name: &str,
-    registry: &dyn crate::rbac::traits::RoleRegistry<P>,
-) -> bool
+pub fn detect_cycle<P>(role_name: &str, registry: &dyn crate::rbac::traits::RoleRegistry<P>) -> bool
 where
     P: Permission,
 {

@@ -60,6 +60,7 @@ where
     S: Subject,
     P: Permission,
 {
+    #[must_use]
     pub fn new(assignment_store: impl AssignmentStore<S, P> + 'static) -> Self {
         Self {
             sessions: tokio::sync::RwLock::new(HashMap::new()),
@@ -99,8 +100,7 @@ where
             if !policy.validate(&roles_vec) {
                 return Err(KirinoError::ConstraintViolation(format!(
                     "DSD policy '{}' violated for roles {:?}",
-                    policy.name,
-                    roles,
+                    policy.name, roles,
                 )));
             }
         }

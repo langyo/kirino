@@ -330,7 +330,10 @@ mod tests {
         assert!(ro_stdev > 0.0);
 
         // Verify history was cleared after baseline build
-        assert!(det.history.is_empty(), "history should be cleared after baseline build");
+        assert!(
+            det.history.is_empty(),
+            "history should be cleared after baseline build"
+        );
     }
 
     #[test]
@@ -355,7 +358,11 @@ mod tests {
         }
 
         let score = det.observe(&make_request(ActionCategory::ProcessExec));
-        assert!(score.value > 0.0, "anomaly value should be >0 after baseline ready, got {}", score.value);
+        assert!(
+            score.value > 0.0,
+            "anomaly value should be >0 after baseline ready, got {}",
+            score.value
+        );
         assert_ne!(score.reason, "insufficient-samples");
     }
 

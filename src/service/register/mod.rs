@@ -4,9 +4,7 @@ mod tests {
     use crate::{
         database::sql::InMemoryUserDatabase,
         rbac::{
-            store::memory::InMemoryAssignmentStore,
-            subject::StringSubject,
-            traits::AssignmentStore,
+            store::memory::InMemoryAssignmentStore, subject::StringSubject, traits::AssignmentStore,
         },
         service::login::{build_default_engine, AuthService, KirinoPermission, LoginRateLimiter},
     };

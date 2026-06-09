@@ -17,11 +17,17 @@ pub trait ConstraintStore: Send + Sync {
     async fn remove_dsd_policy(&self, name: &str) -> KirinoResult<bool>;
 
     async fn list_cardinality_constraints(&self) -> KirinoResult<Vec<CardinalityConstraint>>;
-    async fn add_cardinality_constraint(&self, constraint: CardinalityConstraint) -> KirinoResult<()>;
+    async fn add_cardinality_constraint(
+        &self,
+        constraint: CardinalityConstraint,
+    ) -> KirinoResult<()>;
     async fn remove_cardinality_constraint(&self, role_name: &str) -> KirinoResult<bool>;
 
     async fn list_prerequisite_constraints(&self) -> KirinoResult<Vec<PrerequisiteConstraint>>;
-    async fn add_prerequisite_constraint(&self, constraint: PrerequisiteConstraint) -> KirinoResult<()>;
+    async fn add_prerequisite_constraint(
+        &self,
+        constraint: PrerequisiteConstraint,
+    ) -> KirinoResult<()>;
     async fn remove_prerequisite_constraint(&self, role_name: &str) -> KirinoResult<bool>;
 
     async fn list_temporal_constraints(&self) -> KirinoResult<Vec<TemporalConstraint>>;
@@ -94,7 +100,10 @@ impl ConstraintStore for InMemoryConstraintStore {
         Ok(self.cardinality.read().await.clone())
     }
 
-    async fn add_cardinality_constraint(&self, constraint: CardinalityConstraint) -> KirinoResult<()> {
+    async fn add_cardinality_constraint(
+        &self,
+        constraint: CardinalityConstraint,
+    ) -> KirinoResult<()> {
         self.cardinality.write().await.push(constraint);
         Ok(())
     }
@@ -110,7 +119,10 @@ impl ConstraintStore for InMemoryConstraintStore {
         Ok(self.prerequisites.read().await.clone())
     }
 
-    async fn add_prerequisite_constraint(&self, constraint: PrerequisiteConstraint) -> KirinoResult<()> {
+    async fn add_prerequisite_constraint(
+        &self,
+        constraint: PrerequisiteConstraint,
+    ) -> KirinoResult<()> {
         self.prerequisites.write().await.push(constraint);
         Ok(())
     }

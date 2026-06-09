@@ -52,6 +52,7 @@ where
     P: Permission,
     A: AssignmentStore<S, P>,
 {
+    #[must_use]
     pub fn new(
         role_registry: impl RoleRegistry<P> + 'static,
         permission_registry: impl PermissionRegistry<P> + 'static,
@@ -106,7 +107,11 @@ where
     /// Returns `Ok(Some(result))` if a decision was reached,
     /// `Err(())` if a store error caused denial,
     /// `Ok(None)` if role checking is still needed.
-    async fn check_cached_deny_extra(&self, subject: &S, permission: &P) -> Result<Option<bool>, ()> {
+    async fn check_cached_deny_extra(
+        &self,
+        subject: &S,
+        permission: &P,
+    ) -> Result<Option<bool>, ()> {
         if let Some(granted) = self.cache.get(subject, permission).await {
             return Ok(Some(granted));
         }
@@ -185,7 +190,11 @@ where
             .map(|perm| self.check(subject, perm))
             .collect();
         let outcomes = join_all(futs).await;
-        permissions.iter().zip(outcomes).map(|(p, r)| (p.clone(), r)).collect()
+        permissions
+            .iter()
+            .zip(outcomes)
+            .map(|(p, r)| (p.clone(), r))
+            .collect()
     }
 
     pub async fn effective_permissions(&self, subject: &S) -> HashSet<P> {
@@ -234,13 +243,22 @@ where
             Ok(None) => {}
         }
 
-        if let Ok(role_names) = self.assignment_store.roles_of(subject).await {
-            for role_name in &role_names {
-                let inherited = resolve_role_chain(role_name, &*self.role_registry);
-                if inherited.contains(permission) {
-                    self.cache.set(subject, permission, true).await;
-                    return true;
+        match self.assignment_store.roles_of(subject).await {
+            Ok(role_names) => {
+                for role_name in &role_names {
+                    let inherited = resolve_role_chain(role_name, &*self.role_registry);
+                    if inherited.contains(permission) {
+                        self.cache.set(subject, permission, true).await;
+                        return true;
+                    }
                 }
+            }
+            Err(e) => {
+                tracing::warn!(target: "kirino::rbac::engine",
+                    subject = %subject.subject_id(),
+                    error = %e,
+                    "failed to query roles for hierarchical check"
+                );
             }
         }
 
@@ -278,11 +296,8 @@ mod tests {
     use crate::rbac::store::registry::{SimpleRole, StaticPermissionRegistry, StaticRoleRegistry};
     use crate::test_utils::{TestPerm, TestSubject};
 
-    fn build_engine() -> RbacEngine<
-        TestSubject,
-        TestPerm,
-        InMemoryAssignmentStore<TestSubject, TestPerm>,
-    > {
+    fn build_engine(
+    ) -> RbacEngine<TestSubject, TestPerm, InMemoryAssignmentStore<TestSubject, TestPerm>> {
         let mut role_reg = StaticRoleRegistry::new();
         role_reg.register(SimpleRole::new(
             "admin",
@@ -752,7 +767,10 @@ mod tests {
         async fn subjects_with_role(&self, role: &str) -> KirinoResult<Vec<String>> {
             self.0.subjects_with_role(role).await
         }
-        async fn extra_permissions(&self, subject: &TestSubject) -> KirinoResult<HashSet<TestPerm>> {
+        async fn extra_permissions(
+            &self,
+            subject: &TestSubject,
+        ) -> KirinoResult<HashSet<TestPerm>> {
             self.0.extra_permissions(subject).await
         }
         async fn set_extra_permissions(
@@ -776,11 +794,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_deny_on_denied_permissions_store_error() {
-        let engine = RbacEngine::<
-            TestSubject,
-            TestPerm,
-            FailingAssignmentStore,
-        >::new(
+        let engine = RbacEngine::<TestSubject, TestPerm, FailingAssignmentStore>::new(
             StaticRoleRegistry::<SimpleRole<TestPerm>, TestPerm>::new(),
             StaticPermissionRegistry::new(HashSet::new()),
             FailingAssignmentStore,
@@ -815,7 +829,10 @@ mod tests {
         ) -> KirinoResult<()> {
             self.0.set_extra_permissions(subject, perms).await
         }
-        async fn denied_permissions(&self, subject: &TestSubject) -> KirinoResult<HashSet<TestPerm>> {
+        async fn denied_permissions(
+            &self,
+            subject: &TestSubject,
+        ) -> KirinoResult<HashSet<TestPerm>> {
             self.0.denied_permissions(subject).await
         }
         async fn set_denied_permissions(
@@ -834,15 +851,13 @@ mod tests {
             "viewer",
             [TestPerm::Read].into_iter().collect(),
         ));
-        let perm_reg = StaticPermissionRegistry::new(
-            [TestPerm::Read].into_iter().collect(),
-        );
+        let perm_reg = StaticPermissionRegistry::new([TestPerm::Read].into_iter().collect());
 
-        let engine = RbacEngine::<
-            TestSubject,
-            TestPerm,
-            ExtraOnlyFailingStore,
-        >::new(role_reg, perm_reg, ExtraOnlyFailingStore(InMemoryAssignmentStore::new()));
+        let engine = RbacEngine::<TestSubject, TestPerm, ExtraOnlyFailingStore>::new(
+            role_reg,
+            perm_reg,
+            ExtraOnlyFailingStore(InMemoryAssignmentStore::new()),
+        );
 
         let user = TestSubject("user".to_string());
         engine
@@ -861,15 +876,14 @@ mod tests {
             "admin",
             [TestPerm::Read, TestPerm::Write].into_iter().collect(),
         ));
-        let perm_reg = StaticPermissionRegistry::new(
-            [TestPerm::Read, TestPerm::Write].into_iter().collect(),
-        );
+        let perm_reg =
+            StaticPermissionRegistry::new([TestPerm::Read, TestPerm::Write].into_iter().collect());
 
-        let engine = RbacEngine::<
-            TestSubject,
-            TestPerm,
-            DeniedOnlyFailingStore,
-        >::new(role_reg, perm_reg, DeniedOnlyFailingStore(InMemoryAssignmentStore::new()));
+        let engine = RbacEngine::<TestSubject, TestPerm, DeniedOnlyFailingStore>::new(
+            role_reg,
+            perm_reg,
+            DeniedOnlyFailingStore(InMemoryAssignmentStore::new()),
+        );
         let user = TestSubject("user".to_string());
         engine
             .assignment_store()

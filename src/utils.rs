@@ -189,7 +189,10 @@ mod tests {
     #[test]
     fn test_url_encode_special_chars() {
         assert_eq!(url_encode("a&b=c"), "a%26b%3Dc");
-        assert_eq!(url_encode("https://example.com/path?q=1"), "https%3A%2F%2Fexample.com%2Fpath%3Fq%3D1");
+        assert_eq!(
+            url_encode("https://example.com/path?q=1"),
+            "https%3A%2F%2Fexample.com%2Fpath%3Fq%3D1"
+        );
     }
 
     #[test]

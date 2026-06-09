@@ -129,13 +129,10 @@ impl AuditCondition {
                 .as_ref()
                 .is_some_and(|v| v.sub_scores.domain_mismatch >= *min_weight),
             AuditCondition::RapidDenials { .. } => false,
-            AuditCondition::TrustBelow { threshold } => entry
-                .verdict
-                .as_ref()
-                .is_some_and(|v| {
-                    let trust = 1.0 - v.sub_scores.trust_penalty;
-                    trust <= *threshold
-                }),
+            AuditCondition::TrustBelow { threshold } => entry.verdict.as_ref().is_some_and(|v| {
+                let trust = 1.0 - v.sub_scores.trust_penalty;
+                trust <= *threshold
+            }),
             AuditCondition::Composite {
                 conditions,
                 operator,
@@ -303,7 +300,44 @@ impl AuditSink for InMemoryAuditSink {
     }
 
     async fn count(&self, filter: &AuditFilter) -> u64 {
-        self.query(filter).await.len() as u64
+        let entries = self.entries.read().await;
+        entries
+            .iter()
+            .filter(|e| {
+                if let Some(ref sid) = filter.subject_id {
+                    if e.subject_id != *sid {
+                        return false;
+                    }
+                }
+                if let Some(g) = filter.granted {
+                    if e.granted != g {
+                        return false;
+                    }
+                }
+                if let Some(ref perm) = filter.permission {
+                    if e.permission != *perm {
+                        return false;
+                    }
+                }
+                if let Some(since) = filter.since {
+                    if e.created_at < since {
+                        return false;
+                    }
+                }
+                if let Some(until) = filter.until {
+                    if e.created_at > until {
+                        return false;
+                    }
+                }
+                if let Some(min_risk) = filter.min_risk {
+                    let risk = e.verdict.as_ref().map_or(0.0, |v| v.risk_score);
+                    if risk < min_risk {
+                        return false;
+                    }
+                }
+                true
+            })
+            .count() as u64
     }
 }
 
@@ -323,6 +357,7 @@ impl InMemoryAuditPolicyEngine {
         }
     }
 
+    #[must_use]
     pub fn with_sink(sink: Arc<dyn AuditSink>) -> Self {
         Self {
             rules: RwLock::new(Vec::new()),

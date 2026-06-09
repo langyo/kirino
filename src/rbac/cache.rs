@@ -85,6 +85,9 @@ where
                 expires_at: Instant::now() + self.ttl,
             },
         );
+        // Evict expired entries lazily to prevent unbounded memory growth.
+        let now = Instant::now();
+        cache.retain(|_, entry| now < entry.expires_at);
     }
 
     async fn invalidate_subject(&self, subject: &S) {
@@ -102,8 +105,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
     use crate::test_utils::{TestPerm, TestSubject};
+    use std::sync::Arc;
 
     #[tokio::test]
     async fn test_cache_set_and_get() {

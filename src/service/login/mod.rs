@@ -483,7 +483,10 @@ where
         &self,
         token: &str,
     ) -> KirinoResult<crate::auth::credential::basic::Claims> {
-        self.jwt.verify_with_revocation(token).await.map_err(Into::into)
+        self.jwt
+            .verify_with_revocation(token)
+            .await
+            .map_err(Into::into)
     }
 
     pub async fn check_permission(&self, user_id: &str, permission: &P) -> bool {
@@ -515,7 +518,8 @@ where
         old_password: &str,
         new_password: &str,
     ) -> KirinoResult<()> {
-        let uid = Uuid::parse_str(user_id).map_err(|_| KirinoError::Validation("invalid user_id".to_string()))?;
+        let uid = Uuid::parse_str(user_id)
+            .map_err(|_| KirinoError::Validation("invalid user_id".to_string()))?;
 
         let user = self
             .db
@@ -540,7 +544,8 @@ where
     }
 
     pub async fn delete_user(&self, user_id: &str) -> KirinoResult<bool> {
-        let uid = Uuid::parse_str(user_id).map_err(|_| KirinoError::Validation("invalid user_id".to_string()))?;
+        let uid = Uuid::parse_str(user_id)
+            .map_err(|_| KirinoError::Validation("invalid user_id".to_string()))?;
         self.jwt.revoke_all_for_user(user_id).await;
         self.db.delete_user(&uid).await
     }
@@ -591,7 +596,12 @@ where
         ))
     }
 
-    pub async fn logout<SM>(&self, user_id: &str, session_id: Uuid, session_mgr: &SM) -> KirinoResult<()>
+    pub async fn logout<SM>(
+        &self,
+        user_id: &str,
+        session_id: Uuid,
+        session_mgr: &SM,
+    ) -> KirinoResult<()>
     where
         SM: crate::rbac::session::SessionManager<StringSubject>,
     {
@@ -766,22 +776,46 @@ mod tests {
 
     #[test]
     fn test_validate_password_unicode_uppercase_lowercase() {
-        assert!(validate_password("Élève1!").is_ok(), "French accented chars should work");
-        assert!(validate_password("ÜberCafé1!").is_ok(), "German umlauts should work");
-        assert!(validate_password("Niño123!").is_ok(), "Spanish tilde should work");
-        assert!(validate_password("中文密码A1!").is_ok(), "CJK + ascii uppercase + digit + special");
+        assert!(
+            validate_password("Élève1!").is_ok(),
+            "French accented chars should work"
+        );
+        assert!(
+            validate_password("ÜberCafé1!").is_ok(),
+            "German umlauts should work"
+        );
+        assert!(
+            validate_password("Niño123!").is_ok(),
+            "Spanish tilde should work"
+        );
+        assert!(
+            validate_password("中文密码A1!").is_ok(),
+            "CJK + ascii uppercase + digit + special"
+        );
     }
 
     #[test]
     fn test_validate_password_unicode_all_one_category() {
-        assert!(validate_password("abcdefgh").is_err(), "only lowercase fails");
-        assert!(validate_password("ÉÉÉÉÉÉÉÉ").is_err(), "only unicode uppercase fails");
-        assert!(validate_password("汉字汉字汉字汉字").is_err(), "only CJK fails");
+        assert!(
+            validate_password("abcdefgh").is_err(),
+            "only lowercase fails"
+        );
+        assert!(
+            validate_password("ÉÉÉÉÉÉÉÉ").is_err(),
+            "only unicode uppercase fails"
+        );
+        assert!(
+            validate_password("汉字汉字汉字汉字").is_err(),
+            "only CJK fails"
+        );
     }
 
     #[test]
     fn test_validate_password_unicode_with_special() {
-        assert!(validate_password("Passエンド1!").is_ok(), "mixed ascii + CJK + special");
+        assert!(
+            validate_password("Passエンド1!").is_ok(),
+            "mixed ascii + CJK + special"
+        );
     }
 
     #[tokio::test]
@@ -862,14 +896,20 @@ mod tests {
     #[test]
     fn test_build_default_engine_admin_has_all_perms() {
         let engine = build_default_engine();
-        let admin = engine.role_registry().get_role_permissions("admin").unwrap();
+        let admin = engine
+            .role_registry()
+            .get_role_permissions("admin")
+            .unwrap();
         assert_eq!(admin.len(), KirinoPermission::all().len());
     }
 
     #[test]
     fn test_build_default_engine_viewer_is_read_only() {
         let engine = build_default_engine();
-        let viewer = engine.role_registry().get_role_permissions("viewer").unwrap();
+        let viewer = engine
+            .role_registry()
+            .get_role_permissions("viewer")
+            .unwrap();
         for perm in &viewer {
             assert!(
                 perm.name().ends_with("_read"),

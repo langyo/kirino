@@ -160,8 +160,8 @@ impl<P: Permission> RoleStore<P> for InMemoryRoleStore<P> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashSet;
     use crate::test_utils::TestSubject;
+    use std::collections::HashSet;
 
     // 不能使用共享的 TestPerm 枚举，因为本模块测试需要表达任意权限名，
     // 例如 TestPerm("deploy")、TestPerm("system_write") 等动态字符串，
