@@ -132,7 +132,10 @@ impl AuditCondition {
             AuditCondition::TrustBelow { threshold } => entry
                 .verdict
                 .as_ref()
-                .is_some_and(|v| v.sub_scores.trust_penalty >= 1.0 - *threshold),
+                .is_some_and(|v| {
+                    let trust = 1.0 - v.sub_scores.trust_penalty;
+                    trust <= *threshold
+                }),
             AuditCondition::Composite {
                 conditions,
                 operator,
