@@ -371,6 +371,9 @@ where
         password: &str,
         display_name: Option<&str>,
     ) -> Result<UserInfo> {
+        // Validate username format before consuming rate limit budget.
+        // This prevents attackers from exhausting rate limiter entries
+        // with a high volume of malformed requests (a DoS vector).
         let username = validate_username(username)?;
 
         self.register_rate_limiter

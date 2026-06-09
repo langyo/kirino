@@ -80,8 +80,7 @@ impl AuthorizationArbiter {
     #[must_use]
     pub fn spawn_trust_decay(&self, interval: std::time::Duration) -> tokio::task::JoinHandle<()> {
         let store = self.trust_store.clone_arc();
-        let worker = TrustDecayWorker::new(store, interval, interval);
-        worker.spawn()
+        TrustDecayWorker::spawn_resilient(store, interval)
     }
 
     pub async fn set_policy(&self, policy: DynamicPolicy) {
