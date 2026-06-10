@@ -1,18 +1,13 @@
 use anyhow::Result;
-use rand::Rng;
-use std::{collections::HashMap, sync::Arc, time::Duration};
-use tokio::sync::RwLock;
+use std::time::Duration;
 
-use crate::utils::constant_time_eq;
+use super::code_store::{generate_numeric_code, VerificationCodeStore};
+
+const DEFAULT_TTL: Duration = Duration::from_secs(300);
 
 pub struct EmailVerifier {
     sender: String,
-    codes: Arc<RwLock<HashMap<String, PendingCode>>>,
-}
-
-struct PendingCode {
-    code: String,
-    expires_at: std::time::Instant,
+    store: VerificationCodeStore,
 }
 
 impl EmailVerifier {
@@ -20,24 +15,16 @@ impl EmailVerifier {
     pub fn new(sender: String) -> Self {
         Self {
             sender,
-            codes: Arc::new(RwLock::new(HashMap::new())),
+            store: VerificationCodeStore::new(),
         }
     }
 
     pub async fn send_code(&self, address: &str, code: &str) -> Result<()> {
-        self.send_code_with_ttl(address, code, Duration::from_secs(300))
-            .await
+        self.send_code_with_ttl(address, code, DEFAULT_TTL).await
     }
 
     pub async fn send_code_with_ttl(&self, address: &str, code: &str, ttl: Duration) -> Result<()> {
-        let pending = PendingCode {
-            code: code.to_string(),
-            expires_at: std::time::Instant::now() + ttl,
-        };
-        self.codes
-            .write()
-            .await
-            .insert(address.to_string(), pending);
+        self.store.store(address, code, ttl).await;
         tracing::debug!(
             target: "kirino::verify::email",
             from = %self.sender,
@@ -48,20 +35,11 @@ impl EmailVerifier {
     }
 
     pub async fn verify_code(&self, address: &str, code: &str) -> Result<bool> {
-        let mut codes = self.codes.write().await;
-        if let Some(pending) = codes.remove(address) {
-            if std::time::Instant::now() < pending.expires_at {
-                return Ok(constant_time_eq(pending.code.as_bytes(), code.as_bytes()));
-            }
-        }
-        Ok(false)
+        self.store.verify(address, code).await
     }
 
     pub fn generate_code(len: usize) -> String {
-        let mut rng = rand::thread_rng();
-        (0..len)
-            .map(|_| rng.gen_range(b'0'..=b'9') as char)
-            .collect()
+        generate_numeric_code(len)
     }
 }
 

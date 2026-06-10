@@ -1,18 +1,13 @@
 use anyhow::Result;
-use rand::Rng;
-use std::{collections::HashMap, sync::Arc, time::Duration};
-use tokio::sync::RwLock;
+use std::time::Duration;
 
-use crate::utils::constant_time_eq;
+use super::code_store::{generate_numeric_code, VerificationCodeStore};
+
+const DEFAULT_TTL: Duration = Duration::from_secs(300);
 
 pub struct SmsVerifier {
     sender: String,
-    codes: Arc<RwLock<HashMap<String, PendingCode>>>,
-}
-
-struct PendingCode {
-    code: String,
-    expires_at: std::time::Instant,
+    store: VerificationCodeStore,
 }
 
 impl SmsVerifier {
@@ -20,21 +15,16 @@ impl SmsVerifier {
     pub fn new(sender: String) -> Self {
         Self {
             sender,
-            codes: Arc::new(RwLock::new(HashMap::new())),
+            store: VerificationCodeStore::new(),
         }
     }
 
     pub async fn send_code(&self, phone: &str, code: &str) -> Result<()> {
-        self.send_code_with_ttl(phone, code, Duration::from_secs(300))
-            .await
+        self.send_code_with_ttl(phone, code, DEFAULT_TTL).await
     }
 
     pub async fn send_code_with_ttl(&self, phone: &str, code: &str, ttl: Duration) -> Result<()> {
-        let pending = PendingCode {
-            code: code.to_string(),
-            expires_at: std::time::Instant::now() + ttl,
-        };
-        self.codes.write().await.insert(phone.to_string(), pending);
+        self.store.store(phone, code, ttl).await;
         tracing::debug!(
             target: "kirino::verify::sms",
             from = %self.sender,
@@ -45,20 +35,11 @@ impl SmsVerifier {
     }
 
     pub async fn verify_code(&self, phone: &str, code: &str) -> Result<bool> {
-        let mut codes = self.codes.write().await;
-        if let Some(pending) = codes.remove(phone) {
-            if std::time::Instant::now() < pending.expires_at {
-                return Ok(constant_time_eq(pending.code.as_bytes(), code.as_bytes()));
-            }
-        }
-        Ok(false)
+        self.store.verify(phone, code).await
     }
 
     pub fn generate_code(len: usize) -> String {
-        let mut rng = rand::thread_rng();
-        (0..len)
-            .map(|_| rng.gen_range(b'0'..=b'9') as char)
-            .collect()
+        generate_numeric_code(len)
     }
 }
 
