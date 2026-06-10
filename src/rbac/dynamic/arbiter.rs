@@ -273,7 +273,11 @@ impl AuthorizationArbiter {
             }
         }
 
-        if let Err(e) = self.trust_store.set(&request.delegator.id, trust).await {
+        if let Err(e) = self
+            .trust_store
+            .set(&request.delegator.id, trust)
+            .await
+        {
             tracing::error!(target: "kirino::dynamic::arbiter",
                 delegator_id = %request.delegator.id,
                 error = %e,

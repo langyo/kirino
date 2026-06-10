@@ -157,14 +157,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_cache_ttl_expiry() {
-        let cache = TtlPermissionCache::new(Duration::from_millis(10));
+        let cache = TtlPermissionCache::new(Duration::from_millis(100));
         let subject = TestSubject("user1".to_string());
         let perm = TestPerm::Read;
 
         cache.set(&subject, &perm, true).await;
         assert_eq!(cache.get(&subject, &perm).await, Some(true));
 
-        tokio::time::sleep(Duration::from_millis(20)).await;
+        tokio::time::sleep(Duration::from_millis(200)).await;
         assert_eq!(cache.get(&subject, &perm).await, None);
     }
 

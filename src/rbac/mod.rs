@@ -43,9 +43,10 @@ pub mod prelude {
     #[cfg(feature = "rbac-constraints")]
     pub use crate::rbac::store::persistence::{
         AssignmentRow, AuditRow, ConstraintRow, PersistentAssignmentStore, PersistentAuditStore,
-        PersistentConstraintStore, PersistentRoleStore, PersistentStore, PersistentTrustStore,
-        RoleRow,
+        PersistentConstraintStore, PersistentRoleStore, PersistentStore, RoleRow,
     };
+    #[cfg(feature = "rbac-dynamic")]
+    pub use crate::rbac::store::persistence::PersistentTrustStore;
     pub use crate::rbac::{
         audit::{
             AuditAction, AuditAlert, AuditAnalyzer, AuditCondition, AuditEntry, AuditFilter,

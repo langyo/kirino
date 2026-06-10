@@ -42,10 +42,13 @@ pub trait SessionManager<S: Subject>: Send + Sync {
         active_roles: HashSet<String>,
         ttl: Duration,
     ) -> Result<Session<S>>;
+    #[must_use]
     async fn activate_role(&self, session_id: Uuid, role_name: &str) -> Result<()>;
+    #[must_use]
     async fn deactivate_role(&self, session_id: Uuid, role_name: &str) -> Result<()>;
     #[must_use]
     async fn get_session(&self, session_id: Uuid) -> Result<Option<Session<S>>>;
+    #[must_use]
     async fn destroy_session(&self, session_id: Uuid) -> Result<()>;
 }
 

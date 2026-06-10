@@ -285,11 +285,11 @@ fn matches_filter(entry: &AuditEntry, filter: &AuditFilter) -> bool {
 #[async_trait::async_trait]
 impl AuditSink for InMemoryAuditSink {
     async fn append(&self, mut entry: AuditEntry) {
+        let mut entries = self.entries.write().await;
         let id = self
             .next_id
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         entry.id = id;
-        let mut entries = self.entries.write().await;
         entries.push(entry);
         if entries.len() > self.max_entries {
             let excess = entries.len() - self.max_entries;

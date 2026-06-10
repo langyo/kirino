@@ -3,6 +3,12 @@ use std::hash::{Hash, Hasher};
 use crate::{models::identity::Identity, rbac::traits::Subject};
 
 pub trait Delegatable: Subject {
+    /// Check if this subject can delegate to the given subject.
+    ///
+    /// Only [`Identity::Service`] can delegate, and only to the `caller`
+    /// whose UUID matches `delegate.subject_id()`. The delegate is expected
+    /// to be an [`IdentitySubject`] (or another type whose `subject_id()`
+    /// returns a UUID string).
     fn can_delegate_to<S: Subject>(&self, delegate: &S) -> bool;
 }
 
