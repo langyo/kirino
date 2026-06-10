@@ -26,12 +26,31 @@ pub trait ConstraintStore: Send + Sync {
     #[must_use]
     async fn list_prerequisite_constraints(&self) -> Result<Vec<PrerequisiteConstraint>>;
     async fn add_prerequisite_constraint(&self, constraint: PrerequisiteConstraint) -> Result<()>;
+    /// Removes **all** prerequisite constraints for the given role.
+    #[must_use]
     async fn remove_prerequisite_constraint(&self, role_name: &str) -> Result<bool>;
+    /// Removes a specific prerequisite constraint matching `(role_name, requires)`.
+    #[must_use]
+    async fn remove_prerequisite_constraint_for(
+        &self,
+        role_name: &str,
+        requires: &str,
+    ) -> Result<bool>;
 
     #[must_use]
     async fn list_temporal_constraints(&self) -> Result<Vec<TemporalConstraint>>;
     async fn add_temporal_constraint(&self, constraint: TemporalConstraint) -> Result<()>;
+    /// Removes **all** temporal constraints for the given role.
+    #[must_use]
     async fn remove_temporal_constraint(&self, role_name: &str) -> Result<bool>;
+    /// Removes a specific temporal constraint by index position.
+    #[must_use]
+    async fn remove_temporal_constraint_for(
+        &self,
+        role_name: &str,
+        valid_from: &chrono::DateTime<chrono::Utc>,
+        valid_until: &chrono::DateTime<chrono::Utc>,
+    ) -> Result<bool>;
 }
 
 pub struct InMemoryConstraintStore {
@@ -162,6 +181,17 @@ impl ConstraintStore for InMemoryConstraintStore {
         Ok(constraints.len() < before)
     }
 
+    async fn remove_prerequisite_constraint_for(
+        &self,
+        role_name: &str,
+        requires: &str,
+    ) -> Result<bool> {
+        let mut constraints = self.prerequisites.write().await;
+        let before = constraints.len();
+        constraints.retain(|c| !(c.role_name == role_name && c.requires == requires));
+        Ok(constraints.len() < before)
+    }
+
     async fn list_temporal_constraints(&self) -> Result<Vec<TemporalConstraint>> {
         Ok(self.temporal.read().await.clone())
     }
@@ -186,6 +216,22 @@ impl ConstraintStore for InMemoryConstraintStore {
         let mut constraints = self.temporal.write().await;
         let before = constraints.len();
         constraints.retain(|c| c.role_name != role_name);
+        Ok(constraints.len() < before)
+    }
+
+    async fn remove_temporal_constraint_for(
+        &self,
+        role_name: &str,
+        valid_from: &chrono::DateTime<chrono::Utc>,
+        valid_until: &chrono::DateTime<chrono::Utc>,
+    ) -> Result<bool> {
+        let mut constraints = self.temporal.write().await;
+        let before = constraints.len();
+        constraints.retain(|c| {
+            !(c.role_name == role_name
+                && c.valid_from == *valid_from
+                && c.valid_until == *valid_until)
+        });
         Ok(constraints.len() < before)
     }
 }
@@ -347,6 +393,80 @@ mod tests {
         assert_eq!(store.list_dsd_policies().await.unwrap().len(), 1);
         assert!(store.remove_dsd_policy("dup").await.unwrap());
         assert!(store.list_dsd_policies().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_prerequisite_remove_specific() {
+        let store = InMemoryConstraintStore::new();
+        store
+            .add_prerequisite_constraint(PrerequisiteConstraint::new("admin", "operator"))
+            .await
+            .unwrap();
+        store
+            .add_prerequisite_constraint(PrerequisiteConstraint::new("admin", "viewer"))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            store.list_prerequisite_constraints().await.unwrap().len(),
+            2
+        );
+
+        assert!(store
+            .remove_prerequisite_constraint_for("admin", "operator")
+            .await
+            .unwrap());
+        let remaining = store.list_prerequisite_constraints().await.unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].requires, "viewer");
+    }
+
+    #[tokio::test]
+    async fn test_prerequisite_remove_specific_nonexistent() {
+        let store = InMemoryConstraintStore::new();
+        assert!(!store
+            .remove_prerequisite_constraint_for("admin", "operator")
+            .await
+            .unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_temporal_remove_specific() {
+        let store = InMemoryConstraintStore::new();
+        let now = chrono::Utc::now();
+        let t1_from = now;
+        let t1_until = now + chrono::Duration::hours(1);
+        let t2_from = now + chrono::Duration::hours(2);
+        let t2_until = now + chrono::Duration::hours(3);
+
+        store
+            .add_temporal_constraint(TemporalConstraint::new("role", t1_from, t1_until))
+            .await
+            .unwrap();
+        store
+            .add_temporal_constraint(TemporalConstraint::new("role", t2_from, t2_until))
+            .await
+            .unwrap();
+
+        assert_eq!(store.list_temporal_constraints().await.unwrap().len(), 2);
+
+        assert!(store
+            .remove_temporal_constraint_for("role", &t1_from, &t1_until)
+            .await
+            .unwrap());
+        let remaining = store.list_temporal_constraints().await.unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].valid_from, t2_from);
+    }
+
+    #[tokio::test]
+    async fn test_temporal_remove_specific_nonexistent() {
+        let store = InMemoryConstraintStore::new();
+        let now = chrono::Utc::now();
+        assert!(!store
+            .remove_temporal_constraint_for("ghost", &now, &(now + chrono::Duration::hours(1)))
+            .await
+            .unwrap());
     }
 
     #[tokio::test]

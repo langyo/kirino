@@ -22,11 +22,14 @@ impl VerificationCodeStore {
     }
 
     pub(crate) async fn store(&self, key: &str, code: &str, ttl: Duration) {
+        let mut codes = self.codes.write().await;
+        let now = std::time::Instant::now();
+        codes.retain(|_, v| v.expires_at > now);
         let pending = PendingCode {
             code: code.to_string(),
-            expires_at: std::time::Instant::now() + ttl,
+            expires_at: now + ttl,
         };
-        self.codes.write().await.insert(key.to_string(), pending);
+        codes.insert(key.to_string(), pending);
     }
 
     pub(crate) async fn verify(&self, key: &str, code: &str) -> Result<bool> {

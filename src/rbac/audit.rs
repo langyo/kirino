@@ -569,7 +569,13 @@ impl AuditLogger {
                 let hooks = self.alert_hooks.read().await;
                 for alert in &fired {
                     for hook in hooks.iter() {
-                        hook(alert.clone());
+                        if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            hook(alert.clone());
+                        }))
+                        .is_err()
+                        {
+                            tracing::error!(target: "kirino::audit", "alert hook panicked for rule '{}'", alert.rule_name);
+                        }
                     }
                 }
                 alerts = fired;

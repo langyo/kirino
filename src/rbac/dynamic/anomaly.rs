@@ -95,7 +95,7 @@ impl AnomalyDetector {
 
         if !self.is_baseline_ready() {
             return AnomalyScore {
-                value: 0.0,
+                value: 0.1,
                 reason: "insufficient-samples".to_string(),
             };
         }
@@ -234,7 +234,7 @@ mod tests {
     fn test_observe_insufficient_samples() {
         let mut det = AnomalyDetector::new(20);
         let score = det.observe(&make_request(ActionCategory::ReadOnly));
-        assert_eq!(score.value, 0.0);
+        assert_eq!(score.value, 0.1);
         assert_eq!(score.reason, "insufficient-samples");
     }
 
