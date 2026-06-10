@@ -1,35 +1,32 @@
-use std::fmt;
-
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum KirinoError {
+    #[error("store error: {0}")]
     Store(String),
+
+    #[error("not found: {0}")]
     NotFound(String),
+
+    #[error("validation error: {0}")]
     Validation(String),
+
+    #[error("authentication failed")]
     AuthenticationFailed,
+
+    #[error("authorization denied: {0}")]
     AuthorizationDenied(String),
+
+    #[error("session expired")]
     SessionExpired,
+
+    #[error("session not found")]
     SessionNotFound,
+
+    #[error("constraint violation: {0}")]
     ConstraintViolation(String),
+
+    #[error("internal error: {0}")]
     Internal(String),
 }
-
-impl fmt::Display for KirinoError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            KirinoError::Store(msg) => write!(f, "store error: {msg}"),
-            KirinoError::NotFound(msg) => write!(f, "not found: {msg}"),
-            KirinoError::Validation(msg) => write!(f, "validation error: {msg}"),
-            KirinoError::AuthenticationFailed => write!(f, "authentication failed"),
-            KirinoError::AuthorizationDenied(msg) => write!(f, "authorization denied: {msg}"),
-            KirinoError::SessionExpired => write!(f, "session expired"),
-            KirinoError::SessionNotFound => write!(f, "session not found"),
-            KirinoError::ConstraintViolation(msg) => write!(f, "constraint violation: {msg}"),
-            KirinoError::Internal(msg) => write!(f, "internal error: {msg}"),
-        }
-    }
-}
-
-impl std::error::Error for KirinoError {}
 
 impl From<anyhow::Error> for KirinoError {
     fn from(e: anyhow::Error) -> Self {

@@ -8,6 +8,7 @@ use std::{
 
 #[cfg(feature = "rbac-hierarchy")]
 use crate::rbac::hierarchy::resolve_role_chain;
+use crate::error::KirinoResult;
 use crate::rbac::{
     cache::{PermissionCache, TtlPermissionCache},
     shared::Shared,
@@ -103,13 +104,13 @@ where
 
     /// Check cache, denied permissions, and extra permissions.
     /// Returns `Ok(Some(result))` if a decision was reached,
-    /// `Err(())` if a store error caused denial,
+    /// `Err(e)` if a store error caused denial (error preserved),
     /// `Ok(None)` if role checking is still needed.
     async fn check_cached_deny_extra(
         &self,
         subject: &S,
         permission: &P,
-    ) -> Result<Option<bool>, ()> {
+    ) -> KirinoResult<Option<bool>> {
         if let Some(granted) = self.cache.get(subject, permission).await {
             return Ok(Some(granted));
         }
@@ -127,7 +128,7 @@ where
                     error = %e,
                     "failed to query denied permissions — denying access (not cached)"
                 );
-                return Err(());
+                return Err(e);
             }
         }
 
@@ -144,7 +145,7 @@ where
                     error = %e,
                     "failed to query extra permissions — denying access (not cached)"
                 );
-                return Err(());
+                return Err(e);
             }
         }
 
@@ -155,7 +156,14 @@ where
     pub async fn check(&self, subject: &S, permission: &P) -> bool {
         match self.check_cached_deny_extra(subject, permission).await {
             Ok(Some(result)) => return result,
-            Err(()) => return false,
+            Err(e) => {
+                tracing::error!(target: "kirino::rbac::engine",
+                    subject = %subject.subject_id(),
+                    error = %e,
+                    "store error during permission check — denying access"
+                );
+                return false;
+            }
             Ok(None) => {}
         }
 
@@ -259,7 +267,14 @@ where
     pub async fn check_hierarchical(&self, subject: &S, permission: &P) -> bool {
         match self.check_cached_deny_extra(subject, permission).await {
             Ok(Some(result)) => return result,
-            Err(()) => return false,
+            Err(e) => {
+                tracing::error!(target: "kirino::rbac::engine",
+                    subject = %subject.subject_id(),
+                    error = %e,
+                    "store error during hierarchical permission check — denying access"
+                );
+                return false;
+            }
             Ok(None) => {}
         }
 
