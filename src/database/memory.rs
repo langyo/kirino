@@ -114,7 +114,10 @@ mod tests {
             password_hash: "hash".to_string(),
             display_name: None,
             is_active: true,
-            identity: Identity::Basic { id, created_at: now },
+            identity: Identity::Basic {
+                id,
+                created_at: now,
+            },
             created_at: now,
             updated_at: now,
         }
@@ -226,7 +229,10 @@ mod tests {
             password_hash: "hash".to_string(),
             display_name: None,
             is_active: true,
-            identity: Identity::Basic { id, created_at: now },
+            identity: Identity::Basic {
+                id,
+                created_at: now,
+            },
             created_at: now,
             updated_at: now,
         };
@@ -239,7 +245,10 @@ mod tests {
             password_hash: "hash".to_string(),
             display_name: None,
             is_active: true,
-            identity: Identity::Basic { id: id2, created_at: now },
+            identity: Identity::Basic {
+                id: id2,
+                created_at: now,
+            },
             created_at: now,
             updated_at: now,
         };

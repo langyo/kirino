@@ -9,8 +9,7 @@ use crate::models::identity::Identity;
 ///
 /// Implement this trait to provide a storage backend for service identities.
 /// The crate ships [`InMemoryIdentityProvider`](crate::auth::identity::basic::InMemoryIdentityProvider)
-/// for `Basic` identities only; anonymous, temporary, and service identity stores
-/// are left to downstream consumers.
+/// for `Basic` identities only; service identity stores are left to downstream consumers.
 #[async_trait]
 pub trait ServiceIdentityProvider: Send + Sync {
     async fn create_service(&self, caller: Uuid) -> Result<Identity>;

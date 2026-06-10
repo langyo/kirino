@@ -39,7 +39,10 @@ impl ServiceCredential {
             )
             .into());
         }
-        Ok(Self { token_hash: zeroize::Zeroizing::new(token_hash), key: zeroize::Zeroizing::new(key) })
+        Ok(Self {
+            token_hash: zeroize::Zeroizing::new(token_hash),
+            key: zeroize::Zeroizing::new(key),
+        })
     }
 }
 

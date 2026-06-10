@@ -57,7 +57,10 @@ impl IdentitySubject {
     pub fn user(id: &str) -> Result<Self> {
         let uuid = uuid::Uuid::parse_str(id)
             .map_err(|e| anyhow::anyhow!("invalid user UUID '{}': {}", id, e))?;
-        Ok(Self::new(Identity::Basic { id: uuid, created_at: Utc::now() }))
+        Ok(Self::new(Identity::Basic {
+            id: uuid,
+            created_at: Utc::now(),
+        }))
     }
 
     #[must_use]
@@ -106,7 +109,10 @@ impl Subject for IdentitySubject {
     fn try_from_subject_id(id: &str) -> Result<Self> {
         let uuid = uuid::Uuid::parse_str(id)
             .map_err(|e| anyhow::anyhow!("invalid subject UUID '{}': {}", id, e))?;
-        Ok(Self::new(Identity::Basic { id: uuid, created_at: Utc::now() }))
+        Ok(Self::new(Identity::Basic {
+            id: uuid,
+            created_at: Utc::now(),
+        }))
     }
 }
 
@@ -127,7 +133,10 @@ mod tests {
     use uuid::Uuid;
 
     fn basic_id(id: Uuid) -> Identity {
-        Identity::Basic { id, created_at: chrono::Utc::now() }
+        Identity::Basic {
+            id,
+            created_at: chrono::Utc::now(),
+        }
     }
 
     #[test]

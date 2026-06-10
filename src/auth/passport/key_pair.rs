@@ -30,14 +30,18 @@ impl KeyPairVerifier {
         let mut rng = rand::thread_rng();
         let mut key = vec![0u8; SECRET_KEY_LENGTH];
         rng.fill(&mut key[..]);
-        Self { secret_key: Zeroizing::new(key) }
+        Self {
+            secret_key: Zeroizing::new(key),
+        }
     }
 
     pub fn with_secret_key(secret_key: Vec<u8>) -> Result<Self> {
         if secret_key.is_empty() {
             return Err(anyhow!("secret key must not be empty"));
         }
-        Ok(Self { secret_key: Zeroizing::new(secret_key) })
+        Ok(Self {
+            secret_key: Zeroizing::new(secret_key),
+        })
     }
 
     pub fn sign(&self, message: &[u8]) -> Result<Vec<u8>> {

@@ -24,7 +24,9 @@ impl NetworkSourceVerifier {
                 "some CIDR entries failed to parse and were silently ignored"
             );
         }
-        Self { allowed_networks: parsed }
+        Self {
+            allowed_networks: parsed,
+        }
     }
 
     pub fn is_allowed(&self, source_ip: IpAddr) -> bool {
@@ -226,7 +228,8 @@ mod tests {
 
     #[test]
     fn test_mixed_ipv4_ipv6_networks() {
-        let v = NetworkSourceVerifier::new(vec!["192.168.1.0/24".to_string(), "::1/128".to_string()]);
+        let v =
+            NetworkSourceVerifier::new(vec!["192.168.1.0/24".to_string(), "::1/128".to_string()]);
         assert!(v.is_allowed(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1))));
         assert!(v.is_allowed(IpAddr::V6(Ipv6Addr::LOCALHOST)));
         assert!(!v.is_allowed(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))));

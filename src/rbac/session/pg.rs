@@ -15,7 +15,9 @@ use crate::{
 #[cfg(feature = "rbac-constraints")]
 use crate::rbac::constraints::store::ConstraintStore;
 
-use super::{validate_dsd_with_store, Session, SessionManager};
+#[cfg(feature = "rbac-constraints")]
+use super::validate_dsd_with_store;
+use super::{Session, SessionManager};
 
 pub struct PgSessionManager<S, P>
 where

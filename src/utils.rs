@@ -48,10 +48,13 @@ pub mod base64 {
         }
 
         if pad_count > 2 {
-            return Err(anyhow!("invalid base64 padding: too many padding characters"));
+            return Err(anyhow!(
+                "invalid base64 padding: too many padding characters"
+            ));
         }
         if pad_count > 0 {
-            let total_content_bytes = bytes.iter()
+            let total_content_bytes = bytes
+                .iter()
                 .filter(|&&b| b != b'\n' && b != b'\r' && b != b' ')
                 .count();
             let data_chars = total_content_bytes - pad_count;

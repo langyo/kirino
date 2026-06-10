@@ -10,8 +10,7 @@ use crate::models::identity::Identity;
 ///
 /// Implement this trait to provide a storage backend for temporary (time-limited) identities.
 /// The crate ships [`InMemoryIdentityProvider`](crate::auth::identity::basic::InMemoryIdentityProvider)
-/// for `Basic` identities only; anonymous, temporary, and service identity stores
-/// are left to downstream consumers.
+/// for `Basic` identities only; temporary identity stores are left to downstream consumers.
 #[async_trait]
 pub trait TemporaryIdentityProvider: Send + Sync {
     async fn create_temporary(&self, expires_at: DateTime<Utc>) -> Result<Identity>;

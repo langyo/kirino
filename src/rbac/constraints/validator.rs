@@ -285,11 +285,14 @@ mod tests {
         let store = InMemoryConstraintStore::new();
         let now = chrono::Utc::now();
         store
-            .add_temporal_constraint(TemporalConstraint::new(
-                "seasonal",
-                now - chrono::Duration::hours(1),
-                now + chrono::Duration::hours(1),
-            ).unwrap())
+            .add_temporal_constraint(
+                TemporalConstraint::new(
+                    "seasonal",
+                    now - chrono::Duration::hours(1),
+                    now + chrono::Duration::hours(1),
+                )
+                .unwrap(),
+            )
             .await
             .unwrap();
 
@@ -302,11 +305,14 @@ mod tests {
         let store = InMemoryConstraintStore::new();
         let now = chrono::Utc::now();
         store
-            .add_temporal_constraint(TemporalConstraint::new(
-                "expired_role",
-                now - chrono::Duration::hours(2),
-                now - chrono::Duration::hours(1),
-            ).unwrap())
+            .add_temporal_constraint(
+                TemporalConstraint::new(
+                    "expired_role",
+                    now - chrono::Duration::hours(2),
+                    now - chrono::Duration::hours(1),
+                )
+                .unwrap(),
+            )
             .await
             .unwrap();
 
@@ -319,11 +325,14 @@ mod tests {
         let store = InMemoryConstraintStore::new();
         let now = chrono::Utc::now();
         store
-            .add_temporal_constraint(TemporalConstraint::new(
-                "seasonal",
-                now - chrono::Duration::hours(1),
-                now + chrono::Duration::hours(1),
-            ).unwrap())
+            .add_temporal_constraint(
+                TemporalConstraint::new(
+                    "seasonal",
+                    now - chrono::Duration::hours(1),
+                    now + chrono::Duration::hours(1),
+                )
+                .unwrap(),
+            )
             .await
             .unwrap();
 
@@ -355,11 +364,14 @@ mod tests {
         let store = InMemoryConstraintStore::new();
         let now = chrono::Utc::now();
         store
-            .add_temporal_constraint(TemporalConstraint::new(
-                "expired_role",
-                now - chrono::Duration::hours(2),
-                now - chrono::Duration::hours(1),
-            ).unwrap())
+            .add_temporal_constraint(
+                TemporalConstraint::new(
+                    "expired_role",
+                    now - chrono::Duration::hours(2),
+                    now - chrono::Duration::hours(1),
+                )
+                .unwrap(),
+            )
             .await
             .unwrap();
 

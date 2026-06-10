@@ -447,7 +447,10 @@ where
         let password_hash = hash_password(password)?;
         let user_id = Uuid::now_v7();
         let now = Utc::now();
-        let identity = Identity::Basic { id: user_id, created_at: now };
+        let identity = Identity::Basic {
+            id: user_id,
+            created_at: now,
+        };
 
         let user = UserRecord {
             id: user_id,
@@ -626,12 +629,18 @@ where
         SM: crate::rbac::session::SessionManager<StringSubject>,
     {
         let username_trimmed = username.trim();
-        self.rate_limiter.check_and_record_failure(username_trimmed).await?;
+        self.rate_limiter
+            .check_and_record_failure(username_trimmed)
+            .await?;
 
-        let user = self.db.find_by_username(username_trimmed).await?.ok_or_else(|| {
-            let _ = verify_password(password, Self::DUMMY_HASH);
-            KirinoError::AuthenticationFailed
-        })?;
+        let user = self
+            .db
+            .find_by_username(username_trimmed)
+            .await?
+            .ok_or_else(|| {
+                let _ = verify_password(password, Self::DUMMY_HASH);
+                KirinoError::AuthenticationFailed
+            })?;
 
         if !user.is_active {
             let _ = verify_password(password, &user.password_hash);
@@ -1040,7 +1049,10 @@ mod tests {
             password_hash: "hash".to_string(),
             display_name: Some("Alice".to_string()),
             is_active: true,
-            identity: Identity::Basic { id, created_at: now },
+            identity: Identity::Basic {
+                id,
+                created_at: now,
+            },
             created_at: now,
             updated_at: now,
         };

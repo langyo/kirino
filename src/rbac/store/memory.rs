@@ -76,7 +76,10 @@ where
     async fn roles_of(&self, subject: &S) -> Result<Vec<String>> {
         let key = subject.subject_id().to_string();
         let assignments = self.role_assignments.read().await;
-        Ok(assignments.get(&key).map(|s| s.iter().cloned().collect()).unwrap_or_default())
+        Ok(assignments
+            .get(&key)
+            .map(|s| s.iter().cloned().collect())
+            .unwrap_or_default())
     }
 
     async fn subjects_with_role(&self, role_name: &str) -> Result<Vec<String>> {

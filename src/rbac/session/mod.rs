@@ -519,4 +519,5 @@ mod tests {
     }
 }
 
+#[cfg(feature = "rbac-pg-session")]
 pub mod pg;

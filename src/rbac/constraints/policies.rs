@@ -93,12 +93,10 @@ impl TemporalConstraint {
         valid_until: chrono::DateTime<chrono::Utc>,
     ) -> Result<Self> {
         if valid_from >= valid_until {
-            return Err(crate::error::KirinoError::Validation(
-                format!(
-                    "TemporalConstraint: valid_from ({}) must be before valid_until ({})",
-                    valid_from, valid_until
-                ),
-            )
+            return Err(crate::error::KirinoError::Validation(format!(
+                "TemporalConstraint: valid_from ({}) must be before valid_until ({})",
+                valid_from, valid_until
+            ))
             .into());
         }
         Ok(Self {

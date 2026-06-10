@@ -27,7 +27,13 @@ impl VerificationCodeStore {
         self.store_with_attempts(key, code, ttl, 3).await;
     }
 
-    pub(crate) async fn store_with_attempts(&self, key: &str, code: &str, ttl: Duration, max_attempts: u32) {
+    pub(crate) async fn store_with_attempts(
+        &self,
+        key: &str,
+        code: &str,
+        ttl: Duration,
+        max_attempts: u32,
+    ) {
         let mut codes = self.codes.write().await;
         let now = std::time::Instant::now();
         codes.retain(|_, v| v.expires_at > now);

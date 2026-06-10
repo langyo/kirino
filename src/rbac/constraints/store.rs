@@ -311,11 +311,10 @@ mod tests {
         let store = InMemoryConstraintStore::new();
         let now = chrono::Utc::now();
         store
-            .add_temporal_constraint(TemporalConstraint::new(
-                "temp_role",
-                now,
-                now + chrono::Duration::hours(1),
-            ).unwrap())
+            .add_temporal_constraint(
+                TemporalConstraint::new("temp_role", now, now + chrono::Duration::hours(1))
+                    .unwrap(),
+            )
             .await
             .unwrap();
 
@@ -491,11 +490,9 @@ mod tests {
             .unwrap();
         let now = chrono::Utc::now();
         store
-            .add_temporal_constraint(TemporalConstraint::new(
-                "temp",
-                now,
-                now + chrono::Duration::hours(1),
-            ).unwrap())
+            .add_temporal_constraint(
+                TemporalConstraint::new("temp", now, now + chrono::Duration::hours(1)).unwrap(),
+            )
             .await
             .unwrap();
 

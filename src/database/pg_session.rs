@@ -50,10 +50,7 @@ impl PersistentSessionStore for PgSessionStore {
             let active_roles: Vec<String> = {
                 let raw: String = row.try_get("", "active_roles")?;
                 serde_json::from_str(&raw).map_err(|e| {
-                    anyhow::anyhow!(
-                        "corrupted active_roles JSON for session {}: {e}",
-                        id
-                    )
+                    anyhow::anyhow!("corrupted active_roles JSON for session {}: {e}", id)
                 })?
             };
             let context: Option<serde_json::Value> = row

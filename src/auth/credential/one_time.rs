@@ -63,12 +63,13 @@ impl OneTimeCredential {
 
 impl super::Credential for OneTimeCredential {
     fn verify(&self, token: &str) -> Result<bool> {
-        let token_matches = constant_time_eq(self.token.as_bytes(), token.as_bytes());
-        let was_unused = self
+        if !constant_time_eq(self.token.as_bytes(), token.as_bytes()) {
+            return Ok(false);
+        }
+        Ok(self
             .used
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_ok();
-        Ok(token_matches && was_unused)
+            .is_ok())
     }
 }
 
@@ -259,6 +260,16 @@ mod tests {
         store.issue(300).await.unwrap();
         store.issue(300).await.unwrap();
         assert_eq!(store.cleanup_expired().await, 0);
+    }
+
+    #[test]
+    fn test_wrong_token_does_not_consume() {
+        let cred = OneTimeCredential::generate();
+        let token = cred.token().to_string();
+        assert!(!cred.verify("wrong-token").unwrap());
+        assert!(!cred.is_used());
+        assert!(cred.verify(&token).unwrap());
+        assert!(cred.is_used());
     }
 
     #[test]
