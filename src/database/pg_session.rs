@@ -48,22 +48,22 @@ impl PersistentSessionStore for PgSessionStore {
         );
         if let Some(row) = self.conn.query_one(stmt).await? {
             let active_roles: Vec<String> = {
-                let raw: String = row.try_get("", "active_roles")?;
+                let raw: String = row.try_get("rbac_sessions", "active_roles")?;
                 serde_json::from_str(&raw).map_err(|e| {
                     anyhow::anyhow!("corrupted active_roles JSON for session {}: {e}", id)
                 })?
             };
             let context: Option<serde_json::Value> = row
-                .try_get::<String>("", "context")
+                .try_get::<String>("rbac_sessions", "context")
                 .ok()
                 .and_then(|s| serde_json::from_str(&s).ok());
-            let expires_at_str = row.try_get::<String>("", "expires_at")?;
+            let expires_at_str = row.try_get::<String>("rbac_sessions", "expires_at")?;
             let expires_at =
                 chrono::DateTime::parse_from_rfc3339(&expires_at_str)?.with_timezone(&chrono::Utc);
-            let created_at_str = row.try_get::<String>("", "created_at")?;
+            let created_at_str = row.try_get::<String>("rbac_sessions", "created_at")?;
             let created_at =
                 chrono::DateTime::parse_from_rfc3339(&created_at_str)?.with_timezone(&chrono::Utc);
-            let subject_id = row.try_get::<String>("", "subject_id")?;
+            let subject_id = row.try_get::<String>("rbac_sessions", "subject_id")?;
             Ok(Some(SessionRow {
                 id,
                 subject_id,

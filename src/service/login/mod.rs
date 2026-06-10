@@ -465,10 +465,14 @@ where
             updated_at: now,
         };
 
+        let is_first = self.auto_admin_first_user
+            && self.db.count_users().await? == 0
+            && !self
+                .has_first_user
+                .swap(true, std::sync::atomic::Ordering::SeqCst);
+
         self.db.create_user(&user).await?;
 
-        let is_first = self.auto_admin_first_user
-            && !self.has_first_user.swap(true, std::sync::atomic::Ordering::SeqCst);
         let role_name = if is_first {
             &self.first_user_role
         } else {
@@ -732,13 +736,9 @@ pub fn build_default_engine() -> Shared<DefaultEngine> {
             KirinoPermission::AgentWrite,
             KirinoPermission::AgentExecute,
             KirinoPermission::ConfigRead,
-            KirinoPermission::ConfigWrite,
             KirinoPermission::KnowledgeRead,
             KirinoPermission::KnowledgeWrite,
             KirinoPermission::ContainerRead,
-            KirinoPermission::ContainerWrite,
-            KirinoPermission::DeployRead,
-            KirinoPermission::DeployExecute,
             KirinoPermission::SystemRead,
         ]
         .into_iter()
@@ -752,7 +752,6 @@ pub fn build_default_engine() -> Shared<DefaultEngine> {
             KirinoPermission::KnowledgeRead,
             KirinoPermission::ContainerRead,
             KirinoPermission::SystemRead,
-            KirinoPermission::DeployRead,
         ]
         .into_iter()
         .collect(),

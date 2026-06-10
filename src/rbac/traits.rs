@@ -12,12 +12,15 @@ pub trait Permission: Eq + std::hash::Hash + Clone + Send + Sync + 'static {
 }
 
 pub trait Subject: Eq + std::hash::Hash + Clone + Send + Sync + 'static {
+    #[must_use]
     fn subject_id(&self) -> &str;
 
+    #[must_use]
     fn subject_type(&self) -> &'static str {
         "user"
     }
 
+    #[must_use]
     fn from_subject_id(id: &str) -> Self;
 
     fn try_from_subject_id(id: &str) -> Result<Self> {
@@ -40,7 +43,9 @@ impl Subject for String {
 }
 
 pub trait Role<P: Permission>: Clone + Send + Sync + 'static {
+    #[must_use]
     fn role_name(&self) -> &str;
+    #[must_use]
     fn permissions(&self) -> &HashSet<P>;
 }
 
