@@ -55,37 +55,37 @@ const MAX_USERNAME_LEN: usize = 64;
 pub fn validate_username(username: &str) -> Result<String> {
     let trimmed = username.trim();
     if trimmed.is_empty() || trimmed.len() < MIN_USERNAME_LEN {
-        return Err(anyhow::Error::from(KirinoError::Validation(format!(
+        return Err(KirinoError::Validation(format!(
             "username must be at least {MIN_USERNAME_LEN} characters"
-        ))));
+        )).into());
     }
     if trimmed.len() > MAX_USERNAME_LEN {
-        return Err(anyhow::Error::from(KirinoError::Validation(format!(
+        return Err(KirinoError::Validation(format!(
             "username must be at most {MAX_USERNAME_LEN} characters"
-        ))));
+        )).into());
     }
     if !trimmed
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
     {
-        return Err(anyhow::Error::from(KirinoError::Validation(
+        return Err(KirinoError::Validation(
             "username may only contain alphanumeric characters, underscores, hyphens, and dots"
                 .to_string(),
-        )));
+        ).into());
     }
     Ok(trimmed.to_string())
 }
 
 pub fn validate_password(password: &str) -> Result<()> {
     if password.len() < MIN_PASSWORD_LEN {
-        return Err(anyhow::Error::from(KirinoError::Validation(format!(
+        return Err(KirinoError::Validation(format!(
             "password must be at least {MIN_PASSWORD_LEN} characters"
-        ))));
+        )).into());
     }
     if password.len() > MAX_PASSWORD_LEN {
-        return Err(anyhow::Error::from(KirinoError::Validation(format!(
+        return Err(KirinoError::Validation(format!(
             "password must be at most {MAX_PASSWORD_LEN} characters"
-        ))));
+        )).into());
     }
 
     let has_uppercase = password.chars().any(|c| c.is_uppercase());
@@ -99,10 +99,10 @@ pub fn validate_password(password: &str) -> Result<()> {
         .count();
 
     if categories < 3 {
-        return Err(anyhow::Error::from(KirinoError::Validation(
+        return Err(KirinoError::Validation(
             "password must contain at least 3 of: uppercase, lowercase, digit, special character"
                 .to_string(),
-        )));
+        ).into());
     }
 
     Ok(())
@@ -143,10 +143,10 @@ impl LoginRateLimiter {
         if entry.attempts >= self.max_attempts {
             let remaining = total_window.saturating_sub(elapsed);
             if remaining > std::time::Duration::ZERO {
-                return Err(anyhow::Error::from(KirinoError::Validation(format!(
+                return Err(KirinoError::Validation(format!(
                     "too many login attempts, try again in {} seconds",
                     remaining.as_secs()
-                ))));
+                )).into());
             }
             entry.attempts = 0;
             entry.window_start = now;
@@ -400,9 +400,9 @@ where
         display_name: Option<&str>,
     ) -> Result<UserInfo> {
         if self.db.find_by_username(username).await?.is_some() {
-            return Err(anyhow::Error::from(KirinoError::Validation(
+            return Err(KirinoError::Validation(
                 "username already exists".to_string(),
-            )));
+            ).into());
         }
 
         let password_hash = hash_password(password)?;
@@ -450,16 +450,16 @@ where
             Some(u) => u,
             None => {
                 let _ = verify_password(password, Self::DUMMY_HASH);
-                return Err(anyhow::Error::from(KirinoError::AuthenticationFailed));
+                return Err(KirinoError::AuthenticationFailed.into());
             }
         };
 
         if !user.is_active {
-            return Err(anyhow::Error::from(KirinoError::AuthenticationFailed));
+            return Err(KirinoError::AuthenticationFailed.into());
         }
 
         if !verify_password(password, &user.password_hash)? {
-            return Err(anyhow::Error::from(KirinoError::AuthenticationFailed));
+            return Err(KirinoError::AuthenticationFailed.into());
         }
 
         self.rate_limiter.reset(username).await;
@@ -547,7 +547,7 @@ where
             .ok_or_else(|| KirinoError::NotFound("user not found".to_string()))?;
 
         if !verify_password(old_password, &user.password_hash)? {
-            return Err(anyhow::Error::from(KirinoError::AuthenticationFailed));
+            return Err(KirinoError::AuthenticationFailed.into());
         }
 
         validate_password(new_password)?;

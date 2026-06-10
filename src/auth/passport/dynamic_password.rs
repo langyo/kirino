@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 
 use hmac::{Hmac, Mac};
 use sha1::Sha1;
@@ -78,7 +78,7 @@ impl HotpVerifier {
 
 fn hotp_code(secret: &[u8], counter: u64, digits: u32) -> Result<u32> {
     let mut mac =
-        HmacSha1::new_from_slice(secret).map_err(|e| anyhow::anyhow!("HMAC init failed: {e}"))?;
+        HmacSha1::new_from_slice(secret).map_err(|e| anyhow!("HMAC init failed: {e}"))?;
     mac.update(&counter.to_be_bytes());
     let result = mac.finalize().into_bytes();
     let offset = (result[19] & 0x0f) as usize;

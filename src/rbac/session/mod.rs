@@ -105,10 +105,9 @@ where
         let roles_vec: Vec<String> = roles.iter().cloned().collect();
         for policy in &policies {
             if !policy.validate(&roles_vec) {
-                return Err(anyhow::Error::from(KirinoError::ConstraintViolation(format!(
-                    "DSD policy '{}' violated for roles {:?}",
-                    policy.name, roles,
-                ))));
+                return Err(KirinoError::ConstraintViolation(
+                    format!("DSD policy '{}' violated for roles {:?}", policy.name, roles,)
+                ).into());
             }
         }
         Ok(())

@@ -345,6 +345,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anyhow::anyhow;
     use crate::error::KirinoError;
     use crate::rbac::store::memory::InMemoryAssignmentStore;
     use crate::rbac::store::registry::{SimpleRole, StaticPermissionRegistry, StaticRoleRegistry};
@@ -778,13 +779,13 @@ mod tests {
             Ok(())
         }
         async fn roles_of(&self, _: &TestSubject) -> Result<Vec<String>> {
-            Err(anyhow::anyhow!("store error"))
+            Err(anyhow!("store error"))
         }
         async fn subjects_with_role(&self, _: &str) -> Result<Vec<String>> {
             Ok(vec![])
         }
         async fn extra_permissions(&self, _: &TestSubject) -> Result<HashSet<TestPerm>> {
-            Err(anyhow::anyhow!("store error"))
+            Err(anyhow!("store error"))
         }
         async fn set_extra_permissions(
             &self,
@@ -794,7 +795,7 @@ mod tests {
             Ok(())
         }
         async fn denied_permissions(&self, _: &TestSubject) -> Result<HashSet<TestPerm>> {
-            Err(anyhow::anyhow!("store error"))
+            Err(anyhow!("store error"))
         }
         async fn set_denied_permissions(
             &self,
@@ -835,7 +836,7 @@ mod tests {
             self.0.set_extra_permissions(subject, perms).await
         }
         async fn denied_permissions(&self, _: &TestSubject) -> Result<HashSet<TestPerm>> {
-            Err(anyhow::anyhow!("denied store error"))
+            Err(anyhow!("denied store error"))
         }
         async fn set_denied_permissions(
             &self,
@@ -874,7 +875,7 @@ mod tests {
             self.0.subjects_with_role(role).await
         }
         async fn extra_permissions(&self, _: &TestSubject) -> Result<HashSet<TestPerm>> {
-            Err(anyhow::anyhow!("extra store error"))
+            Err(anyhow!("extra store error"))
         }
         async fn set_extra_permissions(
             &self,

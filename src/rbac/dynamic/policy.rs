@@ -1,7 +1,9 @@
+use anyhow::bail;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 use super::verdict::{AutonomyLevel, Strategy};
+use anyhow::Result;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DynamicPolicy {
@@ -37,15 +39,15 @@ impl DynamicPolicy {
     ///
     /// Returns `Err(description)` if dimension weights do not sum to ~1.0 or
     /// any weight is outside [0, 1].
-    pub fn validate(&self) -> Result<(), String> {
+    pub fn validate(&self) -> Result<()> {
         let w: f64 = self.dimension_weights.iter().sum();
         if (w - 1.0).abs() > 0.05 {
-            return Err(format!("dimension weights must sum to ~1.0, got {w}"));
+            bail!("dimension weights must sum to ~1.0, got {w}");
         }
 
         for &w in &self.dimension_weights {
             if !(0.0..=1.0).contains(&w) {
-                return Err(format!("dimension weight must be in [0, 1], got {w}"));
+                bail!("dimension weight must be in [0, 1], got {w}");
             }
         }
 
