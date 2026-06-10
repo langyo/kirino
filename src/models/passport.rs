@@ -59,7 +59,7 @@ derive_enum!(
             expires_at: DateTime<Utc>,
             provider_captcha: Uuid,
         },
-        Biological  {
+        Biometric  {
             session: Uuid,
             template: Uuid,
             provider_ai: Uuid,

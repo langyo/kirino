@@ -1,4 +1,4 @@
-pub mod biological;
+pub mod biometric;
 pub mod captcha;
 pub mod dynamic_password;
 pub mod key_pair;

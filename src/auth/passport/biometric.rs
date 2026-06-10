@@ -7,11 +7,11 @@ const DEFAULT_BIOMETRIC_THRESHOLD: f64 = 0.85;
 /// **Security warning:** This uses a naive bit-comparison similarity metric.
 /// For production biometric verification, use a dedicated biometric library
 /// with proper template protection (e.g., fuzzy extractor, homomorphic comparison).
-pub struct BiologicalVerifier {
+pub struct BiometricVerifier {
     threshold: f64,
 }
 
-impl BiologicalVerifier {
+impl BiometricVerifier {
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -56,7 +56,7 @@ impl BiologicalVerifier {
     }
 }
 
-impl Default for BiologicalVerifier {
+impl Default for BiometricVerifier {
     fn default() -> Self {
         Self::new()
     }
@@ -68,7 +68,7 @@ mod tests {
 
     #[test]
     fn test_identical_samples() {
-        let v = BiologicalVerifier::new();
+        let v = BiometricVerifier::new();
         let template = vec![1, 2, 3, 4, 5];
         assert!(v.verify(&template, &template).unwrap());
         assert!((v.compute_similarity(&template, &template) - 1.0).abs() < 1e-10);
@@ -76,7 +76,7 @@ mod tests {
 
     #[test]
     fn test_completely_different() {
-        let v = BiologicalVerifier::new();
+        let v = BiometricVerifier::new();
         let sample = vec![0xFF; 16];
         let template = vec![0x00; 16];
         assert!(!v.verify(&sample, &template).unwrap());
@@ -85,25 +85,25 @@ mod tests {
 
     #[test]
     fn test_empty_sample() {
-        let v = BiologicalVerifier::new();
+        let v = BiometricVerifier::new();
         assert!(!v.verify(&[], &[1, 2, 3]).unwrap());
     }
 
     #[test]
     fn test_empty_template() {
-        let v = BiologicalVerifier::new();
+        let v = BiometricVerifier::new();
         assert!(!v.verify(&[1, 2, 3], &[]).unwrap());
     }
 
     #[test]
     fn test_both_empty() {
-        let v = BiologicalVerifier::new();
+        let v = BiometricVerifier::new();
         assert!(!v.verify(&[], &[]).unwrap());
     }
 
     #[test]
     fn test_single_byte_half_matching() {
-        let v = BiologicalVerifier::with_threshold(0.5);
+        let v = BiometricVerifier::with_threshold(0.5);
         let a = vec![0xFF];
         let b = vec![0x00];
         let sim = v.compute_similarity(&a, &b);
@@ -117,7 +117,7 @@ mod tests {
 
     #[test]
     fn test_different_lengths_shorter_sample() {
-        let v = BiologicalVerifier::with_threshold(0.0);
+        let v = BiometricVerifier::with_threshold(0.0);
         let sample = vec![0xFF];
         let template = vec![0xFF, 0xFF];
         let sim = v.compute_similarity(&sample, &template);
@@ -126,7 +126,7 @@ mod tests {
 
     #[test]
     fn test_different_lengths_shorter_template() {
-        let v = BiologicalVerifier::with_threshold(0.0);
+        let v = BiometricVerifier::with_threshold(0.0);
         let sample = vec![0xFF, 0xFF];
         let template = vec![0xFF];
         let sim = v.compute_similarity(&sample, &template);
@@ -135,21 +135,21 @@ mod tests {
 
     #[test]
     fn test_custom_threshold_clamped() {
-        let v = BiologicalVerifier::with_threshold(1.5);
+        let v = BiometricVerifier::with_threshold(1.5);
         assert_eq!(v.threshold(), 1.0);
-        let v2 = BiologicalVerifier::with_threshold(-0.5);
+        let v2 = BiometricVerifier::with_threshold(-0.5);
         assert_eq!(v2.threshold(), 0.0);
     }
 
     #[test]
     fn test_default_threshold() {
-        let v = BiologicalVerifier::new();
+        let v = BiometricVerifier::new();
         assert!((v.threshold() - 0.85).abs() < 1e-10);
     }
 
     #[test]
     fn test_one_bit_difference() {
-        let v = BiologicalVerifier::new();
+        let v = BiometricVerifier::new();
         let a = vec![0xFF; 8];
         let mut b = vec![0xFF; 8];
         b[0] = 0xFE; // one bit different
