@@ -10,7 +10,7 @@ use crate::{error::KirinoError, models::identity::Identity};
 
 fn identity_id(identity: &Identity) -> Uuid {
     match identity {
-        Identity::Basic { id } => *id,
+        Identity::Basic { id, .. } => *id,
         Identity::Anonymous { id, .. } => *id,
         Identity::Temporary { id, .. } => *id,
         Identity::Service { id, .. } => *id,
@@ -135,7 +135,7 @@ mod tests {
         let id = Uuid::now_v7();
         let now = Utc::now();
         IdentityRecord {
-            identity: Identity::Basic { id },
+            identity: Identity::Basic { id, created_at: now },
             username: username.to_string(),
             password_hash: "hashed".to_string(),
             is_active: true,

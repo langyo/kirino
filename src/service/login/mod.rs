@@ -440,7 +440,7 @@ where
         let password_hash = hash_password(password)?;
         let user_id = Uuid::now_v7();
         let now = Utc::now();
-        let identity = Identity::Basic { id: user_id };
+        let identity = Identity::Basic { id: user_id, created_at: now };
 
         let user = UserRecord {
             id: user_id,
@@ -995,7 +995,7 @@ mod tests {
             password_hash: "hash".to_string(),
             display_name: Some("Alice".to_string()),
             is_active: true,
-            identity: Identity::Basic { id },
+            identity: Identity::Basic { id, created_at: now },
             created_at: now,
             updated_at: now,
         };

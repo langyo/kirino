@@ -1,5 +1,7 @@
 use std::hash::{Hash, Hasher};
 
+use chrono::Utc;
+
 use crate::{models::identity::Identity, rbac::traits::Subject};
 use anyhow::Result;
 
@@ -31,7 +33,7 @@ impl IdentitySubject {
         };
         let id_str = match &identity {
             Identity::Anonymous { id, .. }
-            | Identity::Basic { id }
+            | Identity::Basic { id, .. }
             | Identity::Temporary { id, .. }
             | Identity::Service { id, .. } => id.to_string(),
         };
@@ -55,7 +57,7 @@ impl IdentitySubject {
     pub fn user(id: &str) -> Result<Self> {
         let uuid = uuid::Uuid::parse_str(id)
             .map_err(|e| anyhow::anyhow!("invalid user UUID '{}': {}", id, e))?;
-        Ok(Self::new(Identity::Basic { id: uuid }))
+        Ok(Self::new(Identity::Basic { id: uuid, created_at: Utc::now() }))
     }
 
     #[must_use]
@@ -102,7 +104,7 @@ impl Subject for IdentitySubject {
                 uuid::Uuid::nil()
             }
         };
-        Self::new(Identity::Basic { id: uuid })
+        Self::new(Identity::Basic { id: uuid, created_at: Utc::now() })
     }
 }
 
@@ -122,11 +124,14 @@ mod tests {
     use super::*;
     use uuid::Uuid;
 
+    fn basic_id(id: Uuid) -> Identity {
+        Identity::Basic { id, created_at: chrono::Utc::now() }
+    }
+
     #[test]
     fn test_basic_subject() {
         let id = Uuid::now_v7();
-        let identity = Identity::Basic { id };
-        let subject = IdentitySubject::new(identity);
+        let subject = IdentitySubject::new(basic_id(id));
 
         assert_eq!(subject.subject_id(), id.to_string());
         assert_eq!(subject.subject_type(), "user");
@@ -187,15 +192,15 @@ mod tests {
     #[test]
     fn test_subject_equality() {
         let id = Uuid::now_v7();
-        let s1 = IdentitySubject::new(Identity::Basic { id });
-        let s2 = IdentitySubject::new(Identity::Basic { id });
+        let s1 = IdentitySubject::new(basic_id(id));
+        let s2 = IdentitySubject::new(basic_id(id));
         assert_eq!(s1, s2);
     }
 
     #[test]
     fn test_subject_inequality() {
-        let s1 = IdentitySubject::new(Identity::Basic { id: Uuid::now_v7() });
-        let s2 = IdentitySubject::new(Identity::Basic { id: Uuid::now_v7() });
+        let s1 = IdentitySubject::new(basic_id(Uuid::now_v7()));
+        let s2 = IdentitySubject::new(basic_id(Uuid::now_v7()));
         assert_ne!(s1, s2);
     }
 
@@ -208,8 +213,8 @@ mod tests {
             caller: caller_id,
             created_at: chrono::Utc::now(),
         });
-        let caller = IdentitySubject::new(Identity::Basic { id: caller_id });
-        let stranger = IdentitySubject::new(Identity::Basic { id: Uuid::now_v7() });
+        let caller = IdentitySubject::new(basic_id(caller_id));
+        let stranger = IdentitySubject::new(basic_id(Uuid::now_v7()));
 
         assert!(service.can_delegate_to(&caller));
         assert!(!service.can_delegate_to(&stranger));
@@ -217,8 +222,8 @@ mod tests {
 
     #[test]
     fn test_basic_cannot_delegate() {
-        let user = IdentitySubject::new(Identity::Basic { id: Uuid::now_v7() });
-        let other = IdentitySubject::new(Identity::Basic { id: Uuid::now_v7() });
+        let user = IdentitySubject::new(basic_id(Uuid::now_v7()));
+        let other = IdentitySubject::new(basic_id(Uuid::now_v7()));
         assert!(!user.can_delegate_to(&other));
     }
 }
