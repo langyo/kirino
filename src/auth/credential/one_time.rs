@@ -63,14 +63,13 @@ impl OneTimeCredential {
 
 impl super::Credential for OneTimeCredential {
     fn verify(&self, token: &str) -> Result<bool> {
-        if self.used.load(Ordering::SeqCst) {
+        if !constant_time_eq(self.token.as_bytes(), token.as_bytes()) {
             return Ok(false);
         }
-        if constant_time_eq(self.token.as_bytes(), token.as_bytes()) {
-            self.used.store(true, Ordering::SeqCst);
-            return Ok(true);
-        }
-        Ok(false)
+        Ok(self
+            .used
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok())
     }
 }
 
@@ -252,5 +251,25 @@ mod tests {
         store.issue(300).await.unwrap();
         store.issue(300).await.unwrap();
         assert_eq!(store.cleanup_expired().await, 0);
+    }
+
+    #[test]
+    fn test_concurrent_verify_only_one_succeeds() {
+        use std::sync::Arc;
+        use std::thread;
+
+        let cred = Arc::new(OneTimeCredential::new("shared-token-1234567890"));
+        let mut handles = Vec::new();
+
+        for _ in 0..8 {
+            let c = Arc::clone(&cred);
+            handles.push(thread::spawn(move || {
+                crate::auth::credential::Credential::verify(&*c, "shared-token-1234567890")
+                    .unwrap()
+            }));
+        }
+
+        let results: Vec<bool> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+        assert_eq!(results.iter().filter(|&&r| r).count(), 1);
     }
 }
