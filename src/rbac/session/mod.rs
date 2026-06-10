@@ -8,8 +8,9 @@ use uuid::Uuid;
 
 #[cfg(feature = "rbac-constraints")]
 use crate::rbac::constraints::store::ConstraintStore;
+use anyhow::Result;
 use crate::{
-    error::{KirinoError, KirinoResult},
+    error::KirinoError,
     rbac::{
         shared::Shared,
         traits::{AssignmentStore, Permission, Subject},
@@ -40,12 +41,12 @@ pub trait SessionManager<S: Subject>: Send + Sync {
         subject: &S,
         active_roles: HashSet<String>,
         ttl: Duration,
-    ) -> KirinoResult<Session<S>>;
-    async fn activate_role(&self, session_id: Uuid, role_name: &str) -> KirinoResult<()>;
-    async fn deactivate_role(&self, session_id: Uuid, role_name: &str) -> KirinoResult<()>;
+    ) -> Result<Session<S>>;
+    async fn activate_role(&self, session_id: Uuid, role_name: &str) -> Result<()>;
+    async fn deactivate_role(&self, session_id: Uuid, role_name: &str) -> Result<()>;
     #[must_use]
-    async fn get_session(&self, session_id: Uuid) -> KirinoResult<Option<Session<S>>>;
-    async fn destroy_session(&self, session_id: Uuid) -> KirinoResult<()>;
+    async fn get_session(&self, session_id: Uuid) -> Result<Option<Session<S>>>;
+    async fn destroy_session(&self, session_id: Uuid) -> Result<()>;
 }
 
 pub struct InMemorySessionManager<S, P>
@@ -99,15 +100,15 @@ where
         &self,
         roles: &HashSet<String>,
         constraint_store: &Shared<dyn ConstraintStore>,
-    ) -> KirinoResult<()> {
+    ) -> Result<()> {
         let policies = constraint_store.list_dsd_policies().await?;
         let roles_vec: Vec<String> = roles.iter().cloned().collect();
         for policy in &policies {
             if !policy.validate(&roles_vec) {
-                return Err(KirinoError::ConstraintViolation(format!(
+                return Err(anyhow::Error::from(KirinoError::ConstraintViolation(format!(
                     "DSD policy '{}' violated for roles {:?}",
                     policy.name, roles,
-                )));
+                ))));
             }
         }
         Ok(())
@@ -125,7 +126,7 @@ where
         subject: &S,
         mut active_roles: HashSet<String>,
         ttl: Duration,
-    ) -> KirinoResult<Session<S>> {
+    ) -> Result<Session<S>> {
         let assigned = self.assignment_store.roles_of(subject).await?;
         let assigned_set: HashSet<String> = assigned.into_iter().collect();
         active_roles.retain(|r| assigned_set.contains(r));
@@ -148,14 +149,14 @@ where
         Ok(session)
     }
 
-    async fn activate_role(&self, session_id: Uuid, role_name: &str) -> KirinoResult<()> {
+    async fn activate_role(&self, session_id: Uuid, role_name: &str) -> Result<()> {
         let (subject, current_roles) = {
             let sessions = self.sessions.read().await;
             let session = sessions
                 .get(&session_id)
                 .ok_or(KirinoError::SessionNotFound)?;
             if session.is_expired() {
-                return Err(KirinoError::SessionExpired);
+                return Err(KirinoError::SessionExpired.into());
             }
             (session.subject.clone(), session.active_roles.clone())
         };
@@ -165,7 +166,7 @@ where
         if !assigned.contains(&role_str) {
             return Err(KirinoError::NotFound(format!(
                 "role '{role_name}' not assigned to subject"
-            )));
+            )).into());
         }
 
         let mut test_roles = current_roles;
@@ -181,32 +182,32 @@ where
             .get_mut(&session_id)
             .ok_or(KirinoError::SessionNotFound)?;
         if session.is_expired() {
-            return Err(KirinoError::SessionExpired);
+            return Err(KirinoError::SessionExpired.into());
         }
         session.active_roles.insert(role_name.to_string());
         Ok(())
     }
 
-    async fn deactivate_role(&self, session_id: Uuid, role_name: &str) -> KirinoResult<()> {
+    async fn deactivate_role(&self, session_id: Uuid, role_name: &str) -> Result<()> {
         let mut sessions = self.sessions.write().await;
         let session = sessions
             .get_mut(&session_id)
             .ok_or(KirinoError::SessionNotFound)?;
 
         if session.is_expired() {
-            return Err(KirinoError::SessionExpired);
+            return Err(KirinoError::SessionExpired.into());
         }
 
         session.active_roles.remove(role_name);
         Ok(())
     }
 
-    async fn get_session(&self, session_id: Uuid) -> KirinoResult<Option<Session<S>>> {
+    async fn get_session(&self, session_id: Uuid) -> Result<Option<Session<S>>> {
         let sessions = self.sessions.read().await;
         Ok(sessions.get(&session_id).cloned())
     }
 
-    async fn destroy_session(&self, session_id: Uuid) -> KirinoResult<()> {
+    async fn destroy_session(&self, session_id: Uuid) -> Result<()> {
         let mut sessions = self.sessions.write().await;
         sessions.remove(&session_id);
         Ok(())

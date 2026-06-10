@@ -3,40 +3,40 @@ use async_trait::async_trait;
 use super::policies::{
     CardinalityConstraint, DsdPolicy, PrerequisiteConstraint, SsdPolicy, TemporalConstraint,
 };
-use crate::error::KirinoResult;
+use anyhow::Result;
 
 #[async_trait]
 pub trait ConstraintStore: Send + Sync {
     #[must_use]
-    async fn list_ssd_policies(&self) -> KirinoResult<Vec<SsdPolicy>>;
-    async fn add_ssd_policy(&self, policy: SsdPolicy) -> KirinoResult<()>;
-    async fn remove_ssd_policy(&self, name: &str) -> KirinoResult<bool>;
+    async fn list_ssd_policies(&self) -> Result<Vec<SsdPolicy>>;
+    async fn add_ssd_policy(&self, policy: SsdPolicy) -> Result<()>;
+    async fn remove_ssd_policy(&self, name: &str) -> Result<bool>;
 
     #[must_use]
-    async fn list_dsd_policies(&self) -> KirinoResult<Vec<DsdPolicy>>;
-    async fn add_dsd_policy(&self, policy: DsdPolicy) -> KirinoResult<()>;
-    async fn remove_dsd_policy(&self, name: &str) -> KirinoResult<bool>;
+    async fn list_dsd_policies(&self) -> Result<Vec<DsdPolicy>>;
+    async fn add_dsd_policy(&self, policy: DsdPolicy) -> Result<()>;
+    async fn remove_dsd_policy(&self, name: &str) -> Result<bool>;
 
     #[must_use]
-    async fn list_cardinality_constraints(&self) -> KirinoResult<Vec<CardinalityConstraint>>;
+    async fn list_cardinality_constraints(&self) -> Result<Vec<CardinalityConstraint>>;
     async fn add_cardinality_constraint(
         &self,
         constraint: CardinalityConstraint,
-    ) -> KirinoResult<()>;
-    async fn remove_cardinality_constraint(&self, role_name: &str) -> KirinoResult<bool>;
+    ) -> Result<()>;
+    async fn remove_cardinality_constraint(&self, role_name: &str) -> Result<bool>;
 
     #[must_use]
-    async fn list_prerequisite_constraints(&self) -> KirinoResult<Vec<PrerequisiteConstraint>>;
+    async fn list_prerequisite_constraints(&self) -> Result<Vec<PrerequisiteConstraint>>;
     async fn add_prerequisite_constraint(
         &self,
         constraint: PrerequisiteConstraint,
-    ) -> KirinoResult<()>;
-    async fn remove_prerequisite_constraint(&self, role_name: &str) -> KirinoResult<bool>;
+    ) -> Result<()>;
+    async fn remove_prerequisite_constraint(&self, role_name: &str) -> Result<bool>;
 
     #[must_use]
-    async fn list_temporal_constraints(&self) -> KirinoResult<Vec<TemporalConstraint>>;
-    async fn add_temporal_constraint(&self, constraint: TemporalConstraint) -> KirinoResult<()>;
-    async fn remove_temporal_constraint(&self, role_name: &str) -> KirinoResult<bool>;
+    async fn list_temporal_constraints(&self) -> Result<Vec<TemporalConstraint>>;
+    async fn add_temporal_constraint(&self, constraint: TemporalConstraint) -> Result<()>;
+    async fn remove_temporal_constraint(&self, role_name: &str) -> Result<bool>;
 }
 
 pub struct InMemoryConstraintStore {
@@ -68,86 +68,86 @@ impl Default for InMemoryConstraintStore {
 
 #[async_trait]
 impl ConstraintStore for InMemoryConstraintStore {
-    async fn list_ssd_policies(&self) -> KirinoResult<Vec<SsdPolicy>> {
+    async fn list_ssd_policies(&self) -> Result<Vec<SsdPolicy>> {
         Ok(self.ssd_policies.read().await.clone())
     }
 
-    async fn add_ssd_policy(&self, policy: SsdPolicy) -> KirinoResult<()> {
+    async fn add_ssd_policy(&self, policy: SsdPolicy) -> Result<()> {
         self.ssd_policies.write().await.push(policy);
         Ok(())
     }
 
-    async fn remove_ssd_policy(&self, name: &str) -> KirinoResult<bool> {
+    async fn remove_ssd_policy(&self, name: &str) -> Result<bool> {
         let mut policies = self.ssd_policies.write().await;
         let before = policies.len();
         policies.retain(|p| p.name != name);
         Ok(policies.len() < before)
     }
 
-    async fn list_dsd_policies(&self) -> KirinoResult<Vec<DsdPolicy>> {
+    async fn list_dsd_policies(&self) -> Result<Vec<DsdPolicy>> {
         Ok(self.dsd_policies.read().await.clone())
     }
 
-    async fn add_dsd_policy(&self, policy: DsdPolicy) -> KirinoResult<()> {
+    async fn add_dsd_policy(&self, policy: DsdPolicy) -> Result<()> {
         self.dsd_policies.write().await.push(policy);
         Ok(())
     }
 
-    async fn remove_dsd_policy(&self, name: &str) -> KirinoResult<bool> {
+    async fn remove_dsd_policy(&self, name: &str) -> Result<bool> {
         let mut policies = self.dsd_policies.write().await;
         let before = policies.len();
         policies.retain(|p| p.name != name);
         Ok(policies.len() < before)
     }
 
-    async fn list_cardinality_constraints(&self) -> KirinoResult<Vec<CardinalityConstraint>> {
+    async fn list_cardinality_constraints(&self) -> Result<Vec<CardinalityConstraint>> {
         Ok(self.cardinality.read().await.clone())
     }
 
     async fn add_cardinality_constraint(
         &self,
         constraint: CardinalityConstraint,
-    ) -> KirinoResult<()> {
+    ) -> Result<()> {
         self.cardinality.write().await.push(constraint);
         Ok(())
     }
 
-    async fn remove_cardinality_constraint(&self, role_name: &str) -> KirinoResult<bool> {
+    async fn remove_cardinality_constraint(&self, role_name: &str) -> Result<bool> {
         let mut constraints = self.cardinality.write().await;
         let before = constraints.len();
         constraints.retain(|c| c.role_name != role_name);
         Ok(constraints.len() < before)
     }
 
-    async fn list_prerequisite_constraints(&self) -> KirinoResult<Vec<PrerequisiteConstraint>> {
+    async fn list_prerequisite_constraints(&self) -> Result<Vec<PrerequisiteConstraint>> {
         Ok(self.prerequisites.read().await.clone())
     }
 
     async fn add_prerequisite_constraint(
         &self,
         constraint: PrerequisiteConstraint,
-    ) -> KirinoResult<()> {
+    ) -> Result<()> {
         self.prerequisites.write().await.push(constraint);
         Ok(())
     }
 
-    async fn remove_prerequisite_constraint(&self, role_name: &str) -> KirinoResult<bool> {
+    async fn remove_prerequisite_constraint(&self, role_name: &str) -> Result<bool> {
         let mut constraints = self.prerequisites.write().await;
         let before = constraints.len();
         constraints.retain(|c| c.role_name != role_name);
         Ok(constraints.len() < before)
     }
 
-    async fn list_temporal_constraints(&self) -> KirinoResult<Vec<TemporalConstraint>> {
+    async fn list_temporal_constraints(&self) -> Result<Vec<TemporalConstraint>> {
         Ok(self.temporal.read().await.clone())
     }
 
-    async fn add_temporal_constraint(&self, constraint: TemporalConstraint) -> KirinoResult<()> {
+    async fn add_temporal_constraint(&self, constraint: TemporalConstraint) -> Result<()> {
         self.temporal.write().await.push(constraint);
         Ok(())
     }
 
-    async fn remove_temporal_constraint(&self, role_name: &str) -> KirinoResult<bool> {
+    async fn remove_temporal_constraint(&self, role_name: &str) -> Result<bool> {
         let mut constraints = self.temporal.write().await;
         let before = constraints.len();
         constraints.retain(|c| c.role_name != role_name);

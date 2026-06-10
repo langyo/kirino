@@ -1,5 +1,6 @@
 use super::store::ConstraintStore;
-use crate::error::{KirinoError, KirinoResult};
+use crate::error::KirinoError;
+use anyhow::Result;
 
 pub struct ConstraintValidator<S: ConstraintStore> {
     store: S,
@@ -12,17 +13,17 @@ impl<S: ConstraintStore> ConstraintValidator<S> {
 
     /// # Errors
     /// Returns an error if adding the new role would violate an SSD policy.
-    pub async fn validate_ssd(&self, current_roles: &[String], new_role: &str) -> KirinoResult<()> {
+    pub async fn validate_ssd(&self, current_roles: &[String], new_role: &str) -> Result<()> {
         let policies = self.store.list_ssd_policies().await?;
         let mut test_roles = current_roles.to_vec();
         test_roles.push(new_role.to_string());
 
         for policy in &policies {
             if !policy.validate(&test_roles) {
-                return Err(KirinoError::ConstraintViolation(format!(
+                return Err(anyhow::Error::from(KirinoError::ConstraintViolation(format!(
                     "SSD policy '{}' violated: adding '{}' would exceed cardinality {}",
                     policy.name, new_role, policy.cardinality,
-                )));
+                ))));
             }
         }
         Ok(())
@@ -30,17 +31,17 @@ impl<S: ConstraintStore> ConstraintValidator<S> {
 
     /// # Errors
     /// Returns an error if activating the new role would violate a DSD policy.
-    pub async fn validate_dsd(&self, active_roles: &[String], new_role: &str) -> KirinoResult<()> {
+    pub async fn validate_dsd(&self, active_roles: &[String], new_role: &str) -> Result<()> {
         let policies = self.store.list_dsd_policies().await?;
         let mut test_roles = active_roles.to_vec();
         test_roles.push(new_role.to_string());
 
         for policy in &policies {
             if !policy.validate(&test_roles) {
-                return Err(KirinoError::ConstraintViolation(format!(
+                return Err(anyhow::Error::from(KirinoError::ConstraintViolation(format!(
                     "DSD policy '{}' violated: activating '{}' exceeds cardinality {}",
                     policy.name, new_role, policy.cardinality,
-                )));
+                ))));
             }
         }
         Ok(())
@@ -48,14 +49,14 @@ impl<S: ConstraintStore> ConstraintValidator<S> {
 
     /// # Errors
     /// Returns an error if any temporal constraint is violated at the current time.
-    pub async fn validate_temporal(&self, role_name: &str) -> KirinoResult<()> {
+    pub async fn validate_temporal(&self, role_name: &str) -> Result<()> {
         let constraints = self.store.list_temporal_constraints().await?;
         for constraint in &constraints {
             if constraint.role_name == role_name && !constraint.is_valid() {
-                return Err(KirinoError::ConstraintViolation(format!(
+                return Err(anyhow::Error::from(KirinoError::ConstraintViolation(format!(
                     "Temporal constraint: role '{}' is not available at the current time",
                     role_name,
-                )));
+                ))));
             }
         }
         Ok(())
@@ -67,14 +68,14 @@ impl<S: ConstraintStore> ConstraintValidator<S> {
         &self,
         role_name: &str,
         current_subject_count: usize,
-    ) -> KirinoResult<()> {
+    ) -> Result<()> {
         let constraints = self.store.list_cardinality_constraints().await?;
         for constraint in &constraints {
             if constraint.role_name == role_name && !constraint.validate(current_subject_count) {
-                return Err(KirinoError::ConstraintViolation(format!(
+                return Err(anyhow::Error::from(KirinoError::ConstraintViolation(format!(
                     "Cardinality constraint: role '{}' already has {} subjects (max {})",
                     role_name, current_subject_count, constraint.max_subjects,
-                )));
+                ))));
             }
         }
         Ok(())
@@ -86,14 +87,14 @@ impl<S: ConstraintStore> ConstraintValidator<S> {
         &self,
         role_name: &str,
         current_roles: &[String],
-    ) -> KirinoResult<()> {
+    ) -> Result<()> {
         let constraints = self.store.list_prerequisite_constraints().await?;
         for constraint in &constraints {
             if constraint.role_name == role_name && !constraint.validate(current_roles) {
-                return Err(KirinoError::ConstraintViolation(format!(
+                return Err(anyhow::Error::from(KirinoError::ConstraintViolation(format!(
                     "Prerequisite constraint: role '{}' requires '{}'",
                     role_name, constraint.requires,
-                )));
+                ))));
             }
         }
         Ok(())
@@ -106,7 +107,7 @@ impl<S: ConstraintStore> ConstraintValidator<S> {
         current_roles: &[String],
         new_role: &str,
         current_subject_count: usize,
-    ) -> KirinoResult<()> {
+    ) -> Result<()> {
         self.validate_ssd(current_roles, new_role).await?;
         self.validate_cardinality(new_role, current_subject_count)
             .await?;
