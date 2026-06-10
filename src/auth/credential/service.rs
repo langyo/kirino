@@ -21,21 +21,27 @@ impl ServiceCredential {
                 "ServiceCredential key must not be empty".to_string(),
             ));
         }
-        let hash = hmac_sha256_hex(key, token.as_bytes());
+        let hash = hmac_sha256_hex(key, token.as_bytes())?;
         Ok(Self {
             token_hash: hash,
             key: key.to_vec(),
         })
     }
 
-    pub fn from_hash(token_hash: String, key: Vec<u8>) -> Self {
-        Self { token_hash, key }
+    pub fn from_hash(token_hash: String, key: Vec<u8>) -> KirinoResult<Self> {
+        if key.is_empty() {
+            return Err(KirinoError::Validation(
+                "ServiceCredential key must not be empty".to_string(),
+            ));
+        }
+        Ok(Self { token_hash, key })
     }
 }
 
 impl Credential for ServiceCredential {
     fn verify(&self, token: &str) -> Result<bool> {
-        let computed = hmac_sha256_hex(&self.key, token.as_bytes());
+        let computed = hmac_sha256_hex(&self.key, token.as_bytes())
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
         Ok(constant_time_eq(
             self.token_hash.as_bytes(),
             computed.as_bytes(),
@@ -43,16 +49,16 @@ impl Credential for ServiceCredential {
     }
 }
 
-fn hmac_sha256_hex(key: &[u8], data: &[u8]) -> String {
+fn hmac_sha256_hex(key: &[u8], data: &[u8]) -> KirinoResult<String> {
     let mut mac = HmacSha256::new_from_slice(key)
-        .expect("HMAC key must not be empty; validated at construction");
+        .map_err(|_| KirinoError::Validation("HMAC key must not be empty".to_string()))?;
     mac.update(data);
     let result = mac.finalize().into_bytes();
     let mut hex = String::with_capacity(result.len() * 2);
     for byte in result.as_slice() {
         hex.push_str(&format!("{:02x}", byte));
     }
-    hex
+    Ok(hex)
 }
 
 #[cfg(test)]
@@ -90,7 +96,7 @@ mod tests {
         let cred = ServiceCredential::from_shared_key(key, "token").unwrap();
         let hash = cred.token_hash.clone();
 
-        let cred2 = ServiceCredential::from_hash(hash, key.to_vec());
+        let cred2 = ServiceCredential::from_hash(hash, key.to_vec()).unwrap();
         assert!(cred2.verify("token").unwrap());
     }
 
@@ -116,5 +122,10 @@ mod tests {
     #[test]
     fn test_empty_key_returns_error() {
         assert!(ServiceCredential::from_shared_key(b"", "token").is_err());
+    }
+
+    #[test]
+    fn test_from_hash_empty_key_returns_error() {
+        assert!(ServiceCredential::from_hash("hash".to_string(), vec![]).is_err());
     }
 }
