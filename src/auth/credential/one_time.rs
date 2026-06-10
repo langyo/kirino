@@ -136,10 +136,12 @@ impl OneTimeStore for InMemoryOneTimeStore {
         let token = cred.token().to_string();
         let hash = hash_token(&token);
         let mut tokens = self.tokens.write().await;
+        let now = Instant::now();
+        tokens.retain(|_, v| now < v.expires_at);
         tokens.insert(
             hash,
             PendingToken {
-                expires_at: Instant::now() + Duration::from_secs(ttl_secs),
+                expires_at: now + Duration::from_secs(ttl_secs),
             },
         );
         Ok(token)
@@ -238,8 +240,6 @@ mod tests {
         let t1 = store.issue(0).await.unwrap();
         let t2 = store.issue(300).await.unwrap();
         tokio::time::sleep(Duration::from_millis(10)).await;
-        let removed = store.cleanup_expired().await;
-        assert_eq!(removed, 1);
         assert!(!store.claim(&t1).await.unwrap());
         assert!(store.claim(&t2).await.unwrap());
     }

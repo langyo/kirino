@@ -47,9 +47,9 @@ impl KeyPairVerifier {
         Ok(constant_time_eq(&expected, signature))
     }
 
-    pub fn generate_keypair(&self) -> Result<(Vec<u8>, Vec<u8>)> {
+    pub fn generate_keypair(&self) -> Result<(Vec<u8>, zeroize::Zeroizing<Vec<u8>>)> {
         let mut rng = rand::thread_rng();
-        let mut private_key = vec![0u8; PRIVATE_KEY_LENGTH];
+        let mut private_key = zeroize::Zeroizing::new(vec![0u8; PRIVATE_KEY_LENGTH]);
         rng.fill(&mut private_key[..]);
         let public_key = self.derive_public(&private_key)?;
         Ok((public_key, private_key))
@@ -105,7 +105,7 @@ mod tests {
         let (public_key, private_key) = verifier.generate_keypair().unwrap();
         assert!(!public_key.is_empty());
         assert!(!private_key.is_empty());
-        assert_ne!(public_key, private_key);
+        assert_ne!(public_key, *private_key);
     }
 
     #[test]

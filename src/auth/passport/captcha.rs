@@ -106,8 +106,6 @@ impl CaptchaVerifier {
     }
 
     pub async fn generate_challenge(&self) -> Result<CaptchaChallenge> {
-        self.cleanup_expired().await;
-
         let mut rng = rand::thread_rng();
         let a: u32 = rng.gen_range(1..100);
         let b: u32 = rng.gen_range(1..100);
@@ -116,11 +114,13 @@ impl CaptchaVerifier {
         let challenge_text = format!("{a} + {b} = ?");
 
         let mut challenges = self.challenges.write().await;
+        let now = Instant::now();
+        challenges.retain(|_, entry| now.duration_since(entry.created_at) <= self.ttl);
         challenges.insert(
             id.clone(),
             ChallengeEntry {
                 answer,
-                created_at: Instant::now(),
+                created_at: now,
                 attempts: 0,
             },
         );
@@ -136,6 +136,7 @@ impl CaptchaVerifier {
         self.challenges.read().await.len()
     }
 
+    #[allow(dead_code)]
     async fn cleanup_expired(&self) {
         let mut challenges = self.challenges.write().await;
         let now = Instant::now();

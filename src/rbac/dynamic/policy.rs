@@ -19,6 +19,7 @@ impl DynamicPolicy {
                 return *level;
             }
         }
+        tracing::warn!(target: "kirino::dynamic::policy", risk = risk, "risk score unmatched by any threshold, defaulting to L0Frozen");
         AutonomyLevel::L0Frozen
     }
 
@@ -47,6 +48,18 @@ impl DynamicPolicy {
         for &w in &self.dimension_weights {
             if !(0.0..=1.0).contains(&w) {
                 bail!("dimension weight must be in [0, 1], got {w}");
+            }
+        }
+
+        for (&level, &(min, max)) in &self.autonomy_thresholds {
+            if min >= max {
+                bail!("threshold for {level:?} has min ({min}) >= max ({max})");
+            }
+            if min < 0.0 || max > 1.1 {
+                bail!("threshold for {level:?} out of range [{min}, {max})");
+            }
+            if !self.level_strategies.contains_key(&level) {
+                bail!("no strategy defined for {level:?}");
             }
         }
 

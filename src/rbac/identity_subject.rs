@@ -71,7 +71,7 @@ impl IdentitySubject {
 
 impl PartialEq for IdentitySubject {
     fn eq(&self, other: &Self) -> bool {
-        self.id_str == other.id_str
+        self.id_str == other.id_str && self.type_str == other.type_str
     }
 }
 
@@ -80,6 +80,7 @@ impl Eq for IdentitySubject {}
 impl Hash for IdentitySubject {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.id_str.hash(state);
+        self.type_str.hash(state);
     }
 }
 

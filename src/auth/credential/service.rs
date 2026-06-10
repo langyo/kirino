@@ -14,7 +14,7 @@ type HmacSha256 = Hmac<sha2::Sha256>;
 /// Supports reconstruction from a stored hash via [`from_hash`](Self::from_hash).
 pub struct ServiceCredential {
     token_hash: String,
-    key: Vec<u8>,
+    key: zeroize::Zeroizing<Vec<u8>>,
 }
 
 impl ServiceCredential {
@@ -28,7 +28,7 @@ impl ServiceCredential {
         let hash = hmac_sha256_hex(key, token.as_bytes())?;
         Ok(Self {
             token_hash: hash,
-            key: key.to_vec(),
+            key: zeroize::Zeroizing::new(key.to_vec()),
         })
     }
 
@@ -39,7 +39,7 @@ impl ServiceCredential {
             )
             .into());
         }
-        Ok(Self { token_hash, key })
+        Ok(Self { token_hash, key: zeroize::Zeroizing::new(key) })
     }
 }
 
