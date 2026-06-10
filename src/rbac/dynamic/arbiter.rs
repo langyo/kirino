@@ -49,6 +49,7 @@ impl std::fmt::Debug for AuthorizationArbiter {
 }
 
 impl AuthorizationArbiter {
+    #[must_use]
     pub fn new(trust_store: impl TrustScoreStore + 'static, policy: DynamicPolicy) -> Self {
         Self {
             trust_store: Shared::from_arc_unsized(Arc::new(trust_store)),

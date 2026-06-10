@@ -35,6 +35,7 @@ impl ThirdPartyIframeVerifier {
         Ok(true)
     }
 
+    #[must_use]
     pub fn render_url(&self, site_key: &str) -> String {
         match self.provider.as_str() {
             "recaptcha" => format!("https://www.google.com/recaptcha/api.js?render={site_key}"),

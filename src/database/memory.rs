@@ -12,12 +12,18 @@ use anyhow::Result;
 /// In-memory implementation of [`UserDatabase`].
 ///
 /// Stores all user records in a `HashMap<String, UserRecord>` keyed by username,
-/// protected by a [`tokio::sync::RwLock`]. Suitable for testing and single-node
-/// deployments. For production, replace with a persistent backend.
+/// alongside an id-to-username index, both protected by a single
+/// [`tokio::sync::RwLock`]. Suitable for testing and single-node deployments.
+/// For production, replace with a persistent backend.
 #[derive(Clone, Default)]
 pub struct InMemoryUserDatabase {
-    users: std::sync::Arc<tokio::sync::RwLock<HashMap<String, UserRecord>>>,
-    id_to_username: std::sync::Arc<tokio::sync::RwLock<HashMap<uuid::Uuid, String>>>,
+    inner: std::sync::Arc<tokio::sync::RwLock<InMemoryUserDatabaseInner>>,
+}
+
+#[derive(Default)]
+struct InMemoryUserDatabaseInner {
+    users: HashMap<String, UserRecord>,
+    id_to_username: HashMap<uuid::Uuid, String>,
 }
 
 impl InMemoryUserDatabase {
@@ -30,42 +36,40 @@ impl InMemoryUserDatabase {
 #[async_trait]
 impl UserDatabase for InMemoryUserDatabase {
     async fn create_user(&self, user: &UserRecord) -> Result<()> {
-        let mut users = self.users.write().await;
-        if users.contains_key(&user.username) {
+        let mut inner = self.inner.write().await;
+        if inner.users.contains_key(&user.username) {
             return Err(KirinoError::Validation("username already exists".to_string()).into());
         }
         let id = user.id;
         let username = user.username.clone();
-        users.insert(username.clone(), user.clone());
-        drop(users);
-        self.id_to_username.write().await.insert(id, username);
+        inner.users.insert(username.clone(), user.clone());
+        inner.id_to_username.insert(id, username);
         Ok(())
     }
 
     async fn find_by_username(&self, username: &str) -> Result<Option<UserRecord>> {
-        let users = self.users.read().await;
-        Ok(users.get(username).cloned())
+        let inner = self.inner.read().await;
+        Ok(inner.users.get(username).cloned())
     }
 
     async fn find_by_id(&self, id: &Uuid) -> Result<Option<UserRecord>> {
-        let idx = self.id_to_username.read().await;
-        if let Some(username) = idx.get(id) {
-            let users = self.users.read().await;
-            Ok(users.get(username).cloned())
+        let inner = self.inner.read().await;
+        if let Some(username) = inner.id_to_username.get(id) {
+            Ok(inner.users.get(username).cloned())
         } else {
             Ok(None)
         }
     }
 
     async fn update_password(&self, id: &Uuid, new_hash: &str) -> Result<()> {
-        let idx = self.id_to_username.read().await;
-        let username = idx
+        let mut inner = self.inner.write().await;
+        let username = inner
+            .id_to_username
             .get(id)
             .cloned()
             .ok_or_else(|| KirinoError::NotFound("user not found".to_string()))?;
-        drop(idx);
-        let mut users = self.users.write().await;
-        let user = users
+        let user = inner
+            .users
             .get_mut(&username)
             .ok_or_else(|| KirinoError::NotFound("user not found".to_string()))?;
         user.password_hash = new_hash.to_string();
@@ -74,26 +78,22 @@ impl UserDatabase for InMemoryUserDatabase {
     }
 
     async fn delete_user(&self, id: &Uuid) -> Result<bool> {
-        let mut idx = self.id_to_username.write().await;
-        let username = idx.remove(id);
-        drop(idx);
+        let mut inner = self.inner.write().await;
+        let username = inner.id_to_username.remove(id);
         match username {
-            Some(name) => {
-                let mut users = self.users.write().await;
-                Ok(users.remove(&name).is_some())
-            }
+            Some(name) => Ok(inner.users.remove(&name).is_some()),
             None => Ok(false),
         }
     }
 
     async fn list_users(&self) -> Result<Vec<UserRecord>> {
-        let users = self.users.read().await;
-        Ok(users.values().cloned().collect())
+        let inner = self.inner.read().await;
+        Ok(inner.users.values().cloned().collect())
     }
 
     async fn count_users(&self) -> Result<u64> {
-        let users = self.users.read().await;
-        Ok(users.len() as u64)
+        let inner = self.inner.read().await;
+        Ok(inner.users.len() as u64)
     }
 }
 
@@ -103,15 +103,17 @@ mod tests {
     use crate::models::identity::Identity;
 
     fn make_user(username: &str) -> UserRecord {
+        let id = Uuid::now_v7();
+        let now = chrono::Utc::now();
         UserRecord {
-            id: Uuid::now_v7(),
+            id,
             username: username.to_string(),
             password_hash: "hash".to_string(),
             display_name: None,
             is_active: true,
-            identity: Identity::Basic { id: Uuid::now_v7() },
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
+            identity: Identity::Basic { id },
+            created_at: now,
+            updated_at: now,
         }
     }
 

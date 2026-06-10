@@ -9,6 +9,7 @@ pub struct SsdPolicy {
 }
 
 impl SsdPolicy {
+    #[must_use]
     pub fn new(name: impl Into<String>, roles: HashSet<String>, cardinality: usize) -> Self {
         Self {
             name: name.into(),
@@ -35,6 +36,7 @@ pub struct DsdPolicy {
 }
 
 impl DsdPolicy {
+    #[must_use]
     pub fn new(name: impl Into<String>, roles: HashSet<String>, cardinality: usize) -> Self {
         Self {
             name: name.into(),
@@ -60,6 +62,7 @@ pub struct CardinalityConstraint {
 }
 
 impl CardinalityConstraint {
+    #[must_use]
     pub fn new(role_name: impl Into<String>, max_subjects: usize) -> Self {
         Self {
             role_name: role_name.into(),
@@ -80,6 +83,7 @@ pub struct PrerequisiteConstraint {
 }
 
 impl PrerequisiteConstraint {
+    #[must_use]
     pub fn new(role_name: impl Into<String>, requires: impl Into<String>) -> Self {
         Self {
             role_name: role_name.into(),
@@ -101,6 +105,7 @@ pub struct TemporalConstraint {
 }
 
 impl TemporalConstraint {
+    #[must_use]
     pub fn new(
         role_name: impl Into<String>,
         valid_from: chrono::DateTime<chrono::Utc>,

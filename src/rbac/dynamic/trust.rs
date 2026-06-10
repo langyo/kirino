@@ -180,6 +180,7 @@ pub struct TrustDecayWorker {
 }
 
 impl TrustDecayWorker {
+    #[must_use]
     pub fn new(
         store: Arc<dyn TrustScoreStore>,
         interval: Duration,
@@ -192,6 +193,7 @@ impl TrustDecayWorker {
         }
     }
 
+    #[must_use]
     pub fn hourly(store: Arc<dyn TrustScoreStore>) -> Self {
         Self::new(store, Duration::from_secs(3600), Duration::from_secs(3600))
     }

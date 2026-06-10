@@ -39,6 +39,7 @@ pub struct ActionSensitivity {
 }
 
 impl ActionSensitivity {
+    #[must_use]
     pub fn new(action: impl Into<String>, category: ActionCategory) -> Self {
         let bw = category.base_weight();
         Self {
@@ -60,6 +61,7 @@ pub struct ActionRequest {
 }
 
 impl ActionRequest {
+    #[must_use]
     pub fn simple(
         delegator: Delegator,
         action: impl Into<String>,
