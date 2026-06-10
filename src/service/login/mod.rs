@@ -479,7 +479,12 @@ where
         self.rate_limiter.check_and_record_failure(username).await?;
 
         let Some(user) = self.db.find_by_username(username).await? else {
-            let _ = verify_password(password, Self::DUMMY_HASH);
+            if let Err(e) = verify_password(password, Self::DUMMY_HASH) {
+                tracing::error!(target: "kirino::service::login",
+                    error = %e,
+                    "dummy hash verification failed"
+                );
+            }
             return Err(KirinoError::AuthenticationFailed.into());
         };
 

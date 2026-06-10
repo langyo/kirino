@@ -39,12 +39,14 @@ impl BiologicalVerifier {
         Ok(score >= self.threshold)
     }
 
+    /// Compute the bit-level similarity between two byte slices.
+    /// Returns `0.0` if either input is empty, since there is no data to compare.
     #[must_use]
     pub fn compute_similarity(&self, a: &[u8], b: &[u8]) -> f64 {
-        let max_len = a.len().max(b.len());
-        if max_len == 0 {
-            return 1.0;
+        if a.is_empty() || b.is_empty() {
+            return 0.0;
         }
+        let max_len = a.len().max(b.len());
         let min_len = a.len().min(b.len());
         let mut matching_bits = 0usize;
         for i in 0..min_len {

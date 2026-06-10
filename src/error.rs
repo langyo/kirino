@@ -1,7 +1,5 @@
 use thiserror::Error;
 
-pub type KirinoResult<T> = Result<T, KirinoError>;
-
 #[derive(Debug, Error)]
 pub enum KirinoError {
     #[error("not found: {0}")]

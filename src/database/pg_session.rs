@@ -57,11 +57,11 @@ impl PersistentSessionStore for PgSessionStore {
                 .ok()
                 .and_then(|s| serde_json::from_str(&s).ok());
             let expires_at_str = row.try_get::<String>("", "expires_at")?;
-            let expires_at = chrono::DateTime::parse_from_rfc3339(&expires_at_str)?
-                .with_timezone(&chrono::Utc);
+            let expires_at =
+                chrono::DateTime::parse_from_rfc3339(&expires_at_str)?.with_timezone(&chrono::Utc);
             let created_at_str = row.try_get::<String>("", "created_at")?;
-            let created_at = chrono::DateTime::parse_from_rfc3339(&created_at_str)?
-                .with_timezone(&chrono::Utc);
+            let created_at =
+                chrono::DateTime::parse_from_rfc3339(&created_at_str)?.with_timezone(&chrono::Utc);
             let subject_id = row.try_get::<String>("", "subject_id")?;
             Ok(Some(SessionRow {
                 id,

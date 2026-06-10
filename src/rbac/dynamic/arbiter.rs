@@ -18,10 +18,13 @@ use crate::rbac::{
     shared::Shared,
 };
 
+const MAX_ANOMALY_DETECTORS: usize = 10_000;
+
 #[derive(Clone)]
 pub struct AuthorizationArbiter {
     trust_store: Shared<dyn TrustScoreStore>,
     detectors: Arc<RwLock<HashMap<String, AnomalyDetector>>>,
+    max_detectors: usize,
     domain_scope: Arc<RwLock<Option<DomainScope>>>,
     policy: Arc<RwLock<DynamicPolicy>>,
     frozen: Arc<RwLock<HashSet<String>>>,
@@ -66,11 +69,20 @@ impl AuthorizationArbiter {
         Self {
             trust_store: Shared::from_arc_unsized(Arc::new(trust_store)),
             detectors: Arc::new(RwLock::new(HashMap::new())),
+            max_detectors: MAX_ANOMALY_DETECTORS,
             domain_scope: Arc::new(RwLock::new(None)),
             policy: Arc::new(RwLock::new(policy)),
             frozen: Arc::new(RwLock::new(HashSet::new())),
             audit: None,
         }
+    }
+
+    /// Sets the maximum number of anomaly detectors.
+    /// When exceeded, new delegators will use a default anomaly score.
+    #[must_use]
+    pub fn with_max_detectors(mut self, max: usize) -> Self {
+        self.max_detectors = max;
+        self
     }
 
     #[must_use]
@@ -241,11 +253,26 @@ impl AuthorizationArbiter {
 
         let anomaly = {
             let mut detectors = self.detectors.write().await;
-            let detector = detectors
-                .entry(request.delegator.id.clone())
-                .or_insert_with(AnomalyDetector::default);
-            let score = detector.observe(request);
-            score.value
+            let detector = if detectors.len() >= self.max_detectors
+                && !detectors.contains_key(&request.delegator.id)
+            {
+                tracing::warn!(target: "kirino::dynamic::arbiter",
+                    delegator_id = %request.delegator.id,
+                    max = self.max_detectors,
+                    "anomaly detector limit reached, using default score"
+                );
+                None
+            } else {
+                Some(
+                    detectors
+                        .entry(request.delegator.id.clone())
+                        .or_insert_with(AnomalyDetector::default),
+                )
+            };
+            match detector {
+                Some(d) => d.observe(request).value,
+                None => 0.0,
+            }
         };
 
         let raw = delegator_weight * policy.dimension_weights[0]
@@ -293,11 +320,7 @@ impl AuthorizationArbiter {
             }
         }
 
-        if let Err(e) = self
-            .trust_store
-            .set(&request.delegator.id, trust)
-            .await
-        {
+        if let Err(e) = self.trust_store.set(&request.delegator.id, trust).await {
             tracing::error!(target: "kirino::dynamic::arbiter",
                 delegator_id = %request.delegator.id,
                 error = %e,

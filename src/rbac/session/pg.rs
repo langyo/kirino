@@ -12,6 +12,9 @@ use crate::{
     },
 };
 
+#[cfg(feature = "rbac-constraints")]
+use crate::rbac::constraints::store::ConstraintStore;
+
 use super::{Session, SessionManager};
 
 pub struct PgSessionManager<S, P>
@@ -21,6 +24,8 @@ where
 {
     store: Shared<dyn PersistentSessionStore>,
     assignment_store: Shared<dyn AssignmentStore<S, P>>,
+    #[cfg(feature = "rbac-constraints")]
+    constraint_store: Option<Shared<dyn ConstraintStore>>,
     _phantom: std::marker::PhantomData<P>,
 }
 
@@ -36,8 +41,16 @@ where
         Self {
             store: Shared::from_arc_unsized(std::sync::Arc::new(store)),
             assignment_store: Shared::from_arc_unsized(std::sync::Arc::new(assignment_store)),
+            #[cfg(feature = "rbac-constraints")]
+            constraint_store: None,
             _phantom: std::marker::PhantomData,
         }
+    }
+
+    #[cfg(feature = "rbac-constraints")]
+    pub fn with_constraint_store(mut self, store: impl ConstraintStore + 'static) -> Self {
+        self.constraint_store = Some(Shared::from_arc_unsized(std::sync::Arc::new(store)));
+        self
     }
 
     pub fn assignment_store(&self) -> Shared<dyn AssignmentStore<S, P>> {
@@ -46,6 +59,26 @@ where
 
     pub async fn cleanup_expired(&self) -> Result<usize> {
         self.store.cleanup_expired().await
+    }
+
+    #[cfg(feature = "rbac-constraints")]
+    async fn validate_dsd_with_store(
+        &self,
+        roles: &HashSet<String>,
+        constraint_store: &Shared<dyn ConstraintStore>,
+    ) -> Result<()> {
+        let policies = constraint_store.list_dsd_policies().await?;
+        let roles_vec: Vec<String> = roles.iter().cloned().collect();
+        for policy in &policies {
+            if !policy.validate(&roles_vec) {
+                return Err(KirinoError::ConstraintViolation(format!(
+                    "DSD policy '{}' violated for roles {:?}",
+                    policy.name, roles,
+                ))
+                .into());
+            }
+        }
+        Ok(())
     }
 }
 
@@ -105,11 +138,26 @@ where
             return Err(KirinoError::SessionExpired.into());
         }
 
+        let subject = S::from_subject_id(&row.subject_id);
+        let assigned = self.assignment_store.roles_of(&subject).await?;
+        let role_str = role_name.to_string();
+        if !assigned.contains(&role_str) {
+            return Err(KirinoError::NotFound(format!(
+                "role '{role_name}' not assigned to subject"
+            ))
+            .into());
+        }
+
         let mut roles: HashSet<String> = row.active_roles.into_iter().collect();
         if roles.contains(role_name) {
             return Ok(());
         }
-        roles.insert(role_name.to_string());
+        roles.insert(role_str);
+
+        #[cfg(feature = "rbac-constraints")]
+        if let Some(ref cs) = self.constraint_store {
+            self.validate_dsd_with_store(&roles, cs).await?;
+        }
 
         let roles_vec: Vec<String> = roles.into_iter().collect();
         self.store.update_roles(session_id, &roles_vec).await
@@ -148,7 +196,6 @@ where
     }
 
     async fn destroy_session(&self, session_id: Uuid) -> Result<()> {
-        let _ = self.store.delete_session(session_id).await;
-        Ok(())
+        self.store.delete_session(session_id).await
     }
 }

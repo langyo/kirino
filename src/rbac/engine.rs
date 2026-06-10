@@ -1,5 +1,4 @@
 use anyhow::Result;
-use futures::future::join_all;
 use std::{
     collections::{HashMap, HashSet},
     marker::PhantomData,
@@ -189,16 +188,23 @@ where
 
     #[must_use]
     pub async fn check_batch(&self, subject: &S, permissions: &HashSet<P>) -> HashMap<P, bool> {
-        let futs: Vec<_> = permissions
-            .iter()
-            .map(|perm| self.check(subject, perm))
-            .collect();
-        let outcomes = join_all(futs).await;
-        permissions
-            .iter()
-            .zip(outcomes)
-            .map(|(p, r)| (p.clone(), r))
-            .collect()
+        use futures::stream::{FuturesOrdered, StreamExt};
+
+        let engine = self.clone();
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(64));
+        let mut tasks = FuturesOrdered::new();
+        for perm in permissions.iter() {
+            let permit = semaphore.clone().acquire_owned().await;
+            let subject = subject.clone();
+            let perm = perm.clone();
+            let engine = engine.clone();
+            tasks.push_back(async move {
+                let _permit = permit;
+                engine.check(&subject, &perm).await
+            });
+        }
+        let outcomes: Vec<_> = tasks.collect().await;
+        permissions.iter().cloned().zip(outcomes).collect()
     }
 
     #[must_use]

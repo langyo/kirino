@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
 macro_rules! define_sod_policy {
-    ($name:ident, $kind:literal) => {
+    ($name:ident) => {
         #[derive(Debug, Clone, Serialize, Deserialize)]
         pub struct $name {
             pub name: String,
@@ -12,7 +12,11 @@ macro_rules! define_sod_policy {
 
         impl $name {
             #[must_use]
-            pub fn new(name: impl Into<String>, roles: HashSet<String>, cardinality: usize) -> Self {
+            pub fn new(
+                name: impl Into<String>,
+                roles: HashSet<String>,
+                cardinality: usize,
+            ) -> Self {
                 Self {
                     name: name.into(),
                     roles,
@@ -29,8 +33,8 @@ macro_rules! define_sod_policy {
     };
 }
 
-define_sod_policy!(SsdPolicy, "static");
-define_sod_policy!(DsdPolicy, "dynamic");
+define_sod_policy!(SsdPolicy);
+define_sod_policy!(DsdPolicy);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CardinalityConstraint {

@@ -1,6 +1,7 @@
 use std::hash::{Hash, Hasher};
 
 use crate::{models::identity::Identity, rbac::traits::Subject};
+use anyhow::Result;
 
 pub trait Delegatable: Subject {
     /// Check if this subject can delegate to the given subject.
@@ -51,10 +52,10 @@ impl IdentitySubject {
         self.identity
     }
 
-    #[must_use]
-    pub fn user(id: &str) -> Self {
-        let uuid = uuid::Uuid::parse_str(id).unwrap_or_else(|_| uuid::Uuid::now_v7());
-        Self::new(Identity::Basic { id: uuid })
+    pub fn user(id: &str) -> Result<Self> {
+        let uuid = uuid::Uuid::parse_str(id)
+            .map_err(|e| anyhow::anyhow!("invalid user UUID '{}': {}", id, e))?;
+        Ok(Self::new(Identity::Basic { id: uuid }))
     }
 
     #[must_use]
@@ -90,7 +91,17 @@ impl Subject for IdentitySubject {
     }
 
     fn from_subject_id(id: &str) -> Self {
-        let uuid = uuid::Uuid::parse_str(id).unwrap_or(uuid::Uuid::nil());
+        let uuid = match uuid::Uuid::parse_str(id) {
+            Ok(u) => u,
+            Err(e) => {
+                tracing::warn!(target: "kirino::rbac::identity_subject",
+                    subject_id = id,
+                    error = %e,
+                    "invalid subject UUID, using nil UUID as fallback"
+                );
+                uuid::Uuid::nil()
+            }
+        };
         Self::new(Identity::Basic { id: uuid })
     }
 }

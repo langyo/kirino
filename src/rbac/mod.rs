@@ -40,13 +40,13 @@ pub mod prelude {
     pub use crate::rbac::hierarchy::{
         detect_cycle, resolve_role_chain, HierarchicalRole, HierarchyNode,
     };
+    #[cfg(feature = "rbac-dynamic")]
+    pub use crate::rbac::store::persistence::PersistentTrustStore;
     #[cfg(feature = "rbac-constraints")]
     pub use crate::rbac::store::persistence::{
         AssignmentRow, AuditRow, ConstraintRow, PersistentAssignmentStore, PersistentAuditStore,
         PersistentConstraintStore, PersistentRoleStore, PersistentStore, RoleRow,
     };
-    #[cfg(feature = "rbac-dynamic")]
-    pub use crate::rbac::store::persistence::PersistentTrustStore;
     pub use crate::rbac::{
         audit::{
             AuditAction, AuditAlert, AuditAnalyzer, AuditCondition, AuditEntry, AuditFilter,

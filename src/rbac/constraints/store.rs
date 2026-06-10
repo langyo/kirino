@@ -168,12 +168,11 @@ impl ConstraintStore for InMemoryConstraintStore {
 
     async fn add_temporal_constraint(&self, constraint: TemporalConstraint) -> Result<()> {
         let mut constraints = self.temporal.write().await;
-        if constraints
-            .iter()
-            .any(|c| c.role_name == constraint.role_name
+        if constraints.iter().any(|c| {
+            c.role_name == constraint.role_name
                 && c.valid_from == constraint.valid_from
-                && c.valid_until == constraint.valid_until)
-        {
+                && c.valid_until == constraint.valid_until
+        }) {
             return Err(anyhow::anyhow!(
                 "identical temporal constraint for role '{}' already exists",
                 constraint.role_name

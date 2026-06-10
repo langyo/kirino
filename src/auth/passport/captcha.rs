@@ -26,6 +26,16 @@ pub struct CaptchaVerifier {
     cleanup_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
+impl std::fmt::Debug for CaptchaVerifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CaptchaVerifier")
+            .field("ttl", &self.ttl)
+            .field("max_attempts", &self.max_attempts)
+            .field("has_cleanup_task", &self.cleanup_handle.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
 impl CaptchaVerifier {
     #[must_use]
     pub fn new() -> Self {

@@ -154,18 +154,15 @@ where
     }
 
     async fn activate_role(&self, session_id: Uuid, role_name: &str) -> Result<()> {
-        let (subject, current_roles) = {
-            let sessions = self.sessions.read().await;
-            let session = sessions
-                .get(&session_id)
-                .ok_or(KirinoError::SessionNotFound)?;
-            if session.is_expired() {
-                return Err(KirinoError::SessionExpired.into());
-            }
-            (session.subject.clone(), session.active_roles.clone())
-        };
+        let mut sessions = self.sessions.write().await;
+        let session = sessions
+            .get_mut(&session_id)
+            .ok_or(KirinoError::SessionNotFound)?;
+        if session.is_expired() {
+            return Err(KirinoError::SessionExpired.into());
+        }
 
-        let assigned = self.assignment_store.roles_of(&subject).await?;
+        let assigned = self.assignment_store.roles_of(&session.subject).await?;
         let role_str = role_name.to_string();
         if !assigned.contains(&role_str) {
             return Err(KirinoError::NotFound(format!(
@@ -174,7 +171,7 @@ where
             .into());
         }
 
-        let mut test_roles = current_roles;
+        let mut test_roles = session.active_roles.clone();
         test_roles.insert(role_str);
 
         #[cfg(feature = "rbac-constraints")]
@@ -182,13 +179,6 @@ where
             self.validate_dsd_with_store(&test_roles, cs).await?;
         }
 
-        let mut sessions = self.sessions.write().await;
-        let session = sessions
-            .get_mut(&session_id)
-            .ok_or(KirinoError::SessionNotFound)?;
-        if session.is_expired() {
-            return Err(KirinoError::SessionExpired.into());
-        }
         session.active_roles.insert(role_name.to_string());
         Ok(())
     }
@@ -201,6 +191,15 @@ where
 
         if session.is_expired() {
             return Err(KirinoError::SessionExpired.into());
+        }
+
+        #[cfg(feature = "rbac-constraints")]
+        {
+            let mut test_roles = session.active_roles.clone();
+            test_roles.remove(role_name);
+            if let Some(ref cs) = self.constraint_store {
+                self.validate_dsd_with_store(&test_roles, cs).await?;
+            }
         }
 
         session.active_roles.remove(role_name);
