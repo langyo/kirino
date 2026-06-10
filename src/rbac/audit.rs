@@ -314,10 +314,7 @@ impl AuditSink for InMemoryAuditSink {
 
     async fn count(&self, filter: &AuditFilter) -> u64 {
         let entries = self.entries.read().await;
-        entries
-            .iter()
-            .filter(|e| matches_filter(e, filter))
-            .count() as u64
+        entries.iter().filter(|e| matches_filter(e, filter)).count() as u64
     }
 }
 

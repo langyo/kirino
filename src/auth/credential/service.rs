@@ -20,7 +20,7 @@ pub struct ServiceCredential {
 }
 
 impl ServiceCredential {
-        pub fn from_shared_key(key: &[u8], token: &str) -> KirinoResult<Self> {
+    pub fn from_shared_key(key: &[u8], token: &str) -> KirinoResult<Self> {
         if key.is_empty() {
             return Err(KirinoError::Validation(
                 "ServiceCredential key must not be empty".to_string(),
@@ -33,7 +33,7 @@ impl ServiceCredential {
         })
     }
 
-        pub fn from_hash(token_hash: String, key: Vec<u8>) -> KirinoResult<Self> {
+    pub fn from_hash(token_hash: String, key: Vec<u8>) -> KirinoResult<Self> {
         if key.is_empty() {
             return Err(KirinoError::Validation(
                 "ServiceCredential key must not be empty".to_string(),
@@ -45,8 +45,8 @@ impl ServiceCredential {
 
 impl Credential for ServiceCredential {
     fn verify(&self, token: &str) -> Result<bool> {
-        let computed = hmac_sha256_hex(&self.key, token.as_bytes())
-            .map_err(|e| anyhow::anyhow!("{}", e))?;
+        let computed =
+            hmac_sha256_hex(&self.key, token.as_bytes()).map_err(|e| anyhow::anyhow!("{}", e))?;
         Ok(constant_time_eq(
             self.token_hash.as_bytes(),
             computed.as_bytes(),

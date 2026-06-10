@@ -30,7 +30,7 @@ impl OAuthVerifier {
         }
     }
 
-        pub fn verify_token(&self, access_token: &str) -> Result<OAuthClaims> {
+    pub fn verify_token(&self, access_token: &str) -> Result<OAuthClaims> {
         if access_token.is_empty() {
             return Err(anyhow!("empty access token"));
         }

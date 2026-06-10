@@ -50,7 +50,7 @@ impl JwtManager {
     /// # Errors
     ///
     /// Returns an error if JWT encoding fails.
-        pub fn issue(&self, user_id: &str, username: &str, roles: Vec<String>) -> Result<String> {
+    pub fn issue(&self, user_id: &str, username: &str, roles: Vec<String>) -> Result<String> {
         self.issue_with_options(user_id, username, roles, vec![], None)
     }
 
@@ -76,9 +76,8 @@ impl JwtManager {
             session_id,
             iat: now.timestamp(),
             exp: (now
-                + chrono::Duration::try_hours(self.expiration_hours).unwrap_or_else(|| {
-                    chrono::Duration::hours(MAX_JWT_EXPIRATION_HOURS)
-                }))
+                + chrono::Duration::try_hours(self.expiration_hours)
+                    .unwrap_or_else(|| chrono::Duration::hours(MAX_JWT_EXPIRATION_HOURS)))
             .timestamp(),
         };
         encode(&Header::default(), &claims, &self.encoding_key)
@@ -90,7 +89,7 @@ impl JwtManager {
     /// # Errors
     ///
     /// Returns an error if the token is invalid, expired, or has an invalid signature.
-        pub fn verify(&self, token: &str) -> Result<Claims> {
+    pub fn verify(&self, token: &str) -> Result<Claims> {
         let data = decode::<Claims>(
             token,
             &self.decoding_key,
@@ -105,7 +104,7 @@ impl JwtManager {
     /// # Errors
     ///
     /// Returns an error if the token is invalid, expired, or has been revoked.
-        pub async fn verify_with_revocation(&self, token: &str) -> Result<Claims> {
+    pub async fn verify_with_revocation(&self, token: &str) -> Result<Claims> {
         let claims = self.verify(token)?;
         let revocation = self.revocation.read().await;
         if let Some(&not_before) = revocation.get(&claims.user_id) {

@@ -201,7 +201,7 @@ impl TrustDecayWorker {
     /// # Errors
     ///
     /// Returns an error if listing, getting, or setting trust scores fails.
-        pub async fn run_once(&self) -> KirinoResult<usize> {
+    pub async fn run_once(&self) -> KirinoResult<usize> {
         let ids = self.store.list_ids().await?;
         let mut decayed = 0;
         for id in &ids {

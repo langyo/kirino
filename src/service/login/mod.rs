@@ -440,7 +440,7 @@ where
     const DUMMY_HASH: &str =
         "$argon2id$v=19$m=19456,t=2,p=1$dummy salts are not used$dummyhashvaluethatisnotused";
 
-        pub async fn login(&self, username: &str, password: &str) -> KirinoResult<LoginResult> {
+    pub async fn login(&self, username: &str, password: &str) -> KirinoResult<LoginResult> {
         let username = username.trim();
         self.rate_limiter.check_and_record_failure(username).await?;
 
@@ -555,12 +555,12 @@ where
         self.db.update_password(&uid, &new_hash).await
     }
 
-        pub async fn list_users(&self) -> KirinoResult<Vec<UserInfo>> {
+    pub async fn list_users(&self) -> KirinoResult<Vec<UserInfo>> {
         let users = self.db.list_users().await?;
         Ok(users.iter().map(UserRecord::to_public).collect())
     }
 
-        pub async fn delete_user(&self, user_id: &str) -> KirinoResult<bool> {
+    pub async fn delete_user(&self, user_id: &str) -> KirinoResult<bool> {
         let uid = Uuid::parse_str(user_id)
             .map_err(|_| KirinoError::Validation("invalid user_id".to_string()))?;
         self.jwt.revoke_all_for_user(user_id).await;
