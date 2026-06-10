@@ -523,3 +523,5 @@ mod tests {
         mgr.destroy_session(uuid::Uuid::now_v7()).await.unwrap();
     }
 }
+
+pub mod pg;

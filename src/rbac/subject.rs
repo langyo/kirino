@@ -13,6 +13,10 @@ impl Subject for StringSubject {
     fn subject_id(&self) -> &str {
         &self.0
     }
+
+    fn from_subject_id(id: &str) -> Self {
+        Self::new(id)
+    }
 }
 
 impl std::fmt::Display for StringSubject {

@@ -17,11 +17,17 @@ pub trait Subject: Eq + std::hash::Hash + Clone + Send + Sync + 'static {
     fn subject_type(&self) -> &'static str {
         "user"
     }
+
+    fn from_subject_id(id: &str) -> Self;
 }
 
 impl Subject for String {
     fn subject_id(&self) -> &str {
         self
+    }
+
+    fn from_subject_id(id: &str) -> Self {
+        id.to_string()
     }
 }
 

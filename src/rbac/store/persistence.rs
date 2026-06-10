@@ -38,6 +38,25 @@ pub struct AuditRow {
     pub verdict: Option<serde_json::Value>,
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SessionRow {
+    pub id: uuid::Uuid,
+    pub subject_id: String,
+    pub active_roles: Vec<String>,
+    pub context: Option<serde_json::Value>,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[async_trait]
+pub trait PersistentSessionStore: Send + Sync {
+    async fn save_session(&self, row: &SessionRow) -> anyhow::Result<()>;
+    async fn load_session(&self, id: uuid::Uuid) -> anyhow::Result<Option<SessionRow>>;
+    async fn delete_session(&self, id: uuid::Uuid) -> anyhow::Result<()>;
+    async fn update_roles(&self, id: uuid::Uuid, active_roles: &[String]) -> anyhow::Result<()>;
+    async fn cleanup_expired(&self) -> anyhow::Result<usize>;
+}
+
 #[async_trait]
 pub trait PersistentAssignmentStore: Send + Sync {
     async fn load_assignments(&self) -> anyhow::Result<Vec<AssignmentRow>>;

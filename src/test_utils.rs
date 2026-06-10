@@ -7,6 +7,10 @@ impl Subject for TestSubject {
     fn subject_id(&self) -> &str {
         &self.0
     }
+
+    fn from_subject_id(id: &str) -> Self {
+        Self(id.to_string())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

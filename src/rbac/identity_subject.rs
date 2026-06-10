@@ -52,6 +52,12 @@ impl IdentitySubject {
     }
 
     #[must_use]
+    pub fn user(id: &str) -> Self {
+        let uuid = uuid::Uuid::parse_str(id).unwrap_or_else(|_| uuid::Uuid::now_v7());
+        Self::new(Identity::Basic { id: uuid })
+    }
+
+    #[must_use]
     pub fn is_expired(&self) -> bool {
         match &self.identity {
             Identity::Temporary { expires_at, .. } => *expires_at < chrono::Utc::now(),
@@ -81,6 +87,11 @@ impl Subject for IdentitySubject {
 
     fn subject_type(&self) -> &'static str {
         self.type_str
+    }
+
+    fn from_subject_id(id: &str) -> Self {
+        let uuid = uuid::Uuid::parse_str(id).unwrap_or(uuid::Uuid::nil());
+        Self::new(Identity::Basic { id: uuid })
     }
 }
 

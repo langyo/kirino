@@ -1,0 +1,154 @@
+use anyhow::Result;
+use chrono::{Duration, Utc};
+use std::collections::HashSet;
+use uuid::Uuid;
+
+use crate::{
+    error::KirinoError,
+    rbac::{
+        shared::Shared,
+        store::persistence::{PersistentSessionStore, SessionRow},
+        traits::{AssignmentStore, Permission, Subject},
+    },
+};
+
+use super::{Session, SessionManager};
+
+pub struct PgSessionManager<S, P>
+where
+    S: Subject,
+    P: Permission,
+{
+    store: Shared<dyn PersistentSessionStore>,
+    assignment_store: Shared<dyn AssignmentStore<S, P>>,
+    _phantom: std::marker::PhantomData<P>,
+}
+
+impl<S, P> PgSessionManager<S, P>
+where
+    S: Subject,
+    P: Permission,
+{
+    pub fn new(
+        store: impl PersistentSessionStore + 'static,
+        assignment_store: impl AssignmentStore<S, P> + 'static,
+    ) -> Self {
+        Self {
+            store: Shared::from_arc_unsized(std::sync::Arc::new(store)),
+            assignment_store: Shared::from_arc_unsized(std::sync::Arc::new(assignment_store)),
+            _phantom: std::marker::PhantomData,
+        }
+    }
+
+    pub fn assignment_store(&self) -> Shared<dyn AssignmentStore<S, P>> {
+        self.assignment_store.clone()
+    }
+
+    pub async fn cleanup_expired(&self) -> Result<usize> {
+        self.store.cleanup_expired().await
+    }
+}
+
+#[async_trait::async_trait]
+impl<S, P> SessionManager<S> for PgSessionManager<S, P>
+where
+    S: Subject,
+    P: Permission,
+{
+    async fn create_session(
+        &self,
+        subject: &S,
+        active_roles: HashSet<String>,
+        ttl: Duration,
+    ) -> Result<Session<S>> {
+        let assigned_roles = self
+            .assignment_store
+            .roles_of(subject)
+            .await?
+            .into_iter()
+            .collect::<HashSet<_>>();
+        let validated_roles: HashSet<String> = active_roles
+            .into_iter()
+            .filter(|r| assigned_roles.contains(r))
+            .collect();
+
+        let now = Utc::now();
+        let session = Session {
+            id: Uuid::now_v7(),
+            subject: subject.clone(),
+            active_roles: validated_roles.clone(),
+            created_at: now,
+            expires_at: now + ttl,
+        };
+
+        let row = SessionRow {
+            id: session.id,
+            subject_id: subject.subject_id().to_string(),
+            active_roles: validated_roles.into_iter().collect(),
+            context: None,
+            expires_at: session.expires_at,
+            created_at: now,
+        };
+        self.store.save_session(&row).await?;
+
+        Ok(session)
+    }
+
+    async fn activate_role(&self, session_id: Uuid, role_name: &str) -> Result<()> {
+        let row = self
+            .store
+            .load_session(session_id)
+            .await?
+            .ok_or(KirinoError::SessionNotFound)?;
+
+        if Utc::now() > row.expires_at {
+            return Err(KirinoError::SessionExpired.into());
+        }
+
+        let mut roles: HashSet<String> = row.active_roles.into_iter().collect();
+        if roles.contains(role_name) {
+            return Ok(());
+        }
+        roles.insert(role_name.to_string());
+
+        let roles_vec: Vec<String> = roles.into_iter().collect();
+        self.store.update_roles(session_id, &roles_vec).await
+    }
+
+    async fn deactivate_role(&self, session_id: Uuid, role_name: &str) -> Result<()> {
+        let row = self
+            .store
+            .load_session(session_id)
+            .await?
+            .ok_or(KirinoError::SessionNotFound)?;
+
+        if Utc::now() > row.expires_at {
+            return Err(KirinoError::SessionExpired.into());
+        }
+
+        let mut roles: HashSet<String> = row.active_roles.into_iter().collect();
+        roles.remove(role_name);
+
+        let roles_vec: Vec<String> = roles.into_iter().collect();
+        self.store.update_roles(session_id, &roles_vec).await
+    }
+
+    async fn get_session(&self, session_id: Uuid) -> Result<Option<Session<S>>> {
+        let row = self.store.load_session(session_id).await?;
+        match row {
+            Some(r) => Ok(Some(Session {
+                id: r.id,
+                subject: S::from_subject_id(&r.subject_id),
+                active_roles: r.active_roles.into_iter().collect(),
+                created_at: r.created_at,
+                expires_at: r.expires_at,
+            })),
+            None => Ok(None),
+        }
+    }
+
+    async fn destroy_session(&self, session_id: Uuid) -> Result<()> {
+        let _ = self.store.delete_session(session_id).await;
+        Ok(())
+    }
+}
