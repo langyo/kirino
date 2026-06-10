@@ -69,6 +69,7 @@ impl WhitelistVerifier {
         before - entries.len()
     }
 
+    #[must_use]
     pub async fn len(&self) -> usize {
         let entries = self.entries.read().await;
         entries.len()
