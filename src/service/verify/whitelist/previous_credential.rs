@@ -27,10 +27,8 @@ impl PreviousCredentialVerifier {
         let store = self.store.read().await;
         if let Some(stored) = store.get(user_id) {
             let result = constant_time_eq(stored.as_bytes(), credential_hash.as_bytes());
-            drop(store);
             return Ok(result);
         }
-        drop(store);
         Ok(false)
     }
 

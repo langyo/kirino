@@ -179,18 +179,20 @@ where
 
         #[cfg(feature = "rbac-constraints")]
         {
-            let sessions = self.sessions.read().await;
-            if let Some(session) = sessions.get(&session_id) {
-                if session.is_expired() {
-                    return Err(KirinoError::SessionExpired.into());
-                }
-                let mut test_roles = session.active_roles.clone();
-                test_roles.insert(role_str);
-                if let Some(ref cs) = self.constraint_store {
-                    self.validate_dsd_with_store(&test_roles, cs).await?;
-                }
-            } else {
-                return Err(KirinoError::SessionNotFound.into());
+            let (active_roles, is_expired) = {
+                let sessions = self.sessions.read().await;
+                let session = sessions
+                    .get(&session_id)
+                    .ok_or(KirinoError::SessionNotFound)?;
+                (session.active_roles.clone(), session.is_expired())
+            };
+            if is_expired {
+                return Err(KirinoError::SessionExpired.into());
+            }
+            let mut test_roles = active_roles;
+            test_roles.insert(role_str);
+            if let Some(ref cs) = self.constraint_store {
+                self.validate_dsd_with_store(&test_roles, cs).await?;
             }
         }
 
@@ -208,18 +210,20 @@ where
     async fn deactivate_role(&self, session_id: Uuid, role_name: &str) -> Result<()> {
         #[cfg(feature = "rbac-constraints")]
         {
-            let sessions = self.sessions.read().await;
-            if let Some(session) = sessions.get(&session_id) {
-                if session.is_expired() {
-                    return Err(KirinoError::SessionExpired.into());
-                }
-                let mut test_roles = session.active_roles.clone();
-                test_roles.remove(role_name);
-                if let Some(ref cs) = self.constraint_store {
-                    self.validate_dsd_with_store(&test_roles, cs).await?;
-                }
-            } else {
-                return Err(KirinoError::SessionNotFound.into());
+            let (active_roles, is_expired) = {
+                let sessions = self.sessions.read().await;
+                let session = sessions
+                    .get(&session_id)
+                    .ok_or(KirinoError::SessionNotFound)?;
+                (session.active_roles.clone(), session.is_expired())
+            };
+            if is_expired {
+                return Err(KirinoError::SessionExpired.into());
+            }
+            let mut test_roles = active_roles;
+            test_roles.remove(role_name);
+            if let Some(ref cs) = self.constraint_store {
+                self.validate_dsd_with_store(&test_roles, cs).await?;
             }
         }
 
