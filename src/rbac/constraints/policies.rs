@@ -1,59 +1,36 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SsdPolicy {
-    pub name: String,
-    pub roles: HashSet<String>,
-    pub cardinality: usize,
-}
-
-impl SsdPolicy {
-    #[must_use]
-    pub fn new(name: impl Into<String>, roles: HashSet<String>, cardinality: usize) -> Self {
-        Self {
-            name: name.into(),
-            roles,
-            cardinality,
+macro_rules! define_sod_policy {
+    ($name:ident, $kind:literal) => {
+        #[derive(Debug, Clone, Serialize, Deserialize)]
+        pub struct $name {
+            pub name: String,
+            pub roles: HashSet<String>,
+            pub cardinality: usize,
         }
-    }
 
-    #[must_use]
-    pub fn validate(&self, assigned_roles: &[String]) -> bool {
-        let count = assigned_roles
-            .iter()
-            .filter(|r| self.roles.contains(*r))
-            .count();
-        count < self.cardinality
-    }
-}
+        impl $name {
+            #[must_use]
+            pub fn new(name: impl Into<String>, roles: HashSet<String>, cardinality: usize) -> Self {
+                Self {
+                    name: name.into(),
+                    roles,
+                    cardinality,
+                }
+            }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DsdPolicy {
-    pub name: String,
-    pub roles: HashSet<String>,
-    pub cardinality: usize,
-}
-
-impl DsdPolicy {
-    #[must_use]
-    pub fn new(name: impl Into<String>, roles: HashSet<String>, cardinality: usize) -> Self {
-        Self {
-            name: name.into(),
-            roles,
-            cardinality,
+            #[must_use]
+            pub fn validate(&self, roles: &[String]) -> bool {
+                let count = roles.iter().filter(|r| self.roles.contains(*r)).count();
+                count < self.cardinality
+            }
         }
-    }
-
-    #[must_use]
-    pub fn validate(&self, active_roles: &[String]) -> bool {
-        let count = active_roles
-            .iter()
-            .filter(|r| self.roles.contains(*r))
-            .count();
-        count < self.cardinality
-    }
+    };
 }
+
+define_sod_policy!(SsdPolicy, "static");
+define_sod_policy!(DsdPolicy, "dynamic");
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CardinalityConstraint {

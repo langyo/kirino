@@ -114,7 +114,17 @@ impl ConstraintStore for InMemoryConstraintStore {
     }
 
     async fn add_cardinality_constraint(&self, constraint: CardinalityConstraint) -> Result<()> {
-        self.cardinality.write().await.push(constraint);
+        let mut constraints = self.cardinality.write().await;
+        if constraints
+            .iter()
+            .any(|c| c.role_name == constraint.role_name)
+        {
+            return Err(anyhow::anyhow!(
+                "cardinality constraint for role '{}' already exists",
+                constraint.role_name
+            ));
+        }
+        constraints.push(constraint);
         Ok(())
     }
 
@@ -130,7 +140,18 @@ impl ConstraintStore for InMemoryConstraintStore {
     }
 
     async fn add_prerequisite_constraint(&self, constraint: PrerequisiteConstraint) -> Result<()> {
-        self.prerequisites.write().await.push(constraint);
+        let mut constraints = self.prerequisites.write().await;
+        if constraints
+            .iter()
+            .any(|c| c.role_name == constraint.role_name && c.requires == constraint.requires)
+        {
+            return Err(anyhow::anyhow!(
+                "prerequisite constraint for role '{}' requiring '{}' already exists",
+                constraint.role_name,
+                constraint.requires
+            ));
+        }
+        constraints.push(constraint);
         Ok(())
     }
 
@@ -146,7 +167,19 @@ impl ConstraintStore for InMemoryConstraintStore {
     }
 
     async fn add_temporal_constraint(&self, constraint: TemporalConstraint) -> Result<()> {
-        self.temporal.write().await.push(constraint);
+        let mut constraints = self.temporal.write().await;
+        if constraints
+            .iter()
+            .any(|c| c.role_name == constraint.role_name
+                && c.valid_from == constraint.valid_from
+                && c.valid_until == constraint.valid_until)
+        {
+            return Err(anyhow::anyhow!(
+                "identical temporal constraint for role '{}' already exists",
+                constraint.role_name
+            ));
+        }
+        constraints.push(constraint);
         Ok(())
     }
 

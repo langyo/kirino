@@ -49,6 +49,18 @@ impl std::fmt::Debug for AuthorizationArbiter {
 }
 
 impl AuthorizationArbiter {
+    /// Creates a new `AuthorizationArbiter`.
+    ///
+    /// # Internal lock ordering
+    ///
+    /// Methods acquire internal locks in a consistent order to prevent deadlocks:
+    /// 1. `frozen` (read or write)
+    /// 2. `policy` (read)
+    /// 3. `domain_scope` (read)
+    /// 4. `detectors` (write)
+    /// 5. `trust_store` (via async trait methods, external locking)
+    ///
+    /// Do **not** acquire these locks in a different order in any new method.
     #[must_use]
     pub fn new(trust_store: impl TrustScoreStore + 'static, policy: DynamicPolicy) -> Self {
         Self {
@@ -184,14 +196,22 @@ impl AuthorizationArbiter {
             DelegatorType::Scheduler => 0.02,
         };
 
-        let trust = self
-            .trust_store
-            .get(&request.delegator.id)
-            .await
-            .map_err(|e| tracing::warn!("trust store get failed (risk_score): {e}"))
-            .ok()
-            .flatten()
-            .unwrap_or_default();
+        let trust = match self.trust_store.get(&request.delegator.id).await {
+            Ok(Some(score)) => score,
+            Ok(None) => TrustScore::default(),
+            Err(e) => {
+                tracing::warn!(target: "kirino::dynamic::arbiter",
+                    delegator_id = %request.delegator.id,
+                    error = %e,
+                    "trust store unavailable, using conservative trust penalty"
+                );
+                TrustScore {
+                    value: 0.0,
+                    confidence: 1.0,
+                    ..TrustScore::default()
+                }
+            }
+        };
         let mut trust_penalty = (1.0 - trust.weighted()).clamp(0.0, 1.0);
 
         let sensitivity = request.category.base_weight();
@@ -347,14 +367,18 @@ impl AuthorizationArbiter {
 
     #[must_use]
     pub async fn status_summary(&self, delegator_id: &str) -> serde_json::Value {
-        let trust = self
-            .trust_store
-            .get(delegator_id)
-            .await
-            .map_err(|e| tracing::warn!("trust store get failed (status_summary): {e}"))
-            .ok()
-            .flatten()
-            .unwrap_or_default();
+        let (trust, store_ok) = match self.trust_store.get(delegator_id).await {
+            Ok(Some(score)) => (score, true),
+            Ok(None) => (TrustScore::default(), true),
+            Err(e) => {
+                tracing::warn!(target: "kirino::dynamic::arbiter",
+                    delegator_id = delegator_id,
+                    error = %e,
+                    "trust store unavailable for status summary"
+                );
+                (TrustScore::default(), false)
+            }
+        };
         let frozen = self.frozen.read().await.contains(delegator_id);
         let detectors = self.detectors.read().await;
         let anomaly_ready = detectors
@@ -364,6 +388,7 @@ impl AuthorizationArbiter {
             "enabled": true,
             "delegator_id": delegator_id,
             "frozen": frozen,
+            "trust_store_ok": store_ok,
             "trust_score": trust.weighted(),
             "trust_confidence": trust.confidence,
             "trust_evidence_count": trust.evidence_count,

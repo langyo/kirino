@@ -1,5 +1,7 @@
 use thiserror::Error;
 
+pub type KirinoResult<T> = Result<T, KirinoError>;
+
 #[derive(Debug, Error)]
 pub enum KirinoError {
     #[error("not found: {0}")]
@@ -22,4 +24,7 @@ pub enum KirinoError {
 
     #[error("constraint violation: {0}")]
     ConstraintViolation(String),
+
+    #[error("internal error: {0}")]
+    Internal(String),
 }

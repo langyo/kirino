@@ -2,7 +2,7 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, sync::Arc, time::Duration};
-use tokio::sync::RwLock;
+use tokio::sync::Mutex;
 
 use async_trait::async_trait;
 
@@ -84,14 +84,14 @@ pub trait TrustScoreStore: Send + Sync {
 }
 
 pub struct InMemoryTrustScoreStore {
-    scores: RwLock<HashMap<String, TrustScore>>,
+    scores: Mutex<HashMap<String, TrustScore>>,
 }
 
 impl InMemoryTrustScoreStore {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            scores: RwLock::new(HashMap::new()),
+            scores: Mutex::new(HashMap::new()),
         }
     }
 }
@@ -105,18 +105,18 @@ impl Default for InMemoryTrustScoreStore {
 #[async_trait]
 impl TrustScoreStore for InMemoryTrustScoreStore {
     async fn get(&self, delegator_id: &str) -> Result<Option<TrustScore>> {
-        let scores = self.scores.read().await;
+        let scores = self.scores.lock().await;
         Ok(scores.get(delegator_id).cloned())
     }
 
     async fn set(&self, delegator_id: &str, score: TrustScore) -> Result<()> {
-        let mut scores = self.scores.write().await;
+        let mut scores = self.scores.lock().await;
         scores.insert(delegator_id.to_string(), score);
         Ok(())
     }
 
     async fn delete(&self, delegator_id: &str) -> Result<()> {
-        let mut scores = self.scores.write().await;
+        let mut scores = self.scores.lock().await;
         scores.remove(delegator_id);
         Ok(())
     }
@@ -130,7 +130,7 @@ impl TrustScoreStore for InMemoryTrustScoreStore {
             chrono::Duration::days(365)
         });
         let cutoff = Utc::now() - chrono_max_age;
-        let mut scores = self.scores.write().await;
+        let mut scores = self.scores.lock().await;
         let stale: Vec<String> = scores
             .iter()
             .filter(|(_, s)| s.last_updated < cutoff)
@@ -143,7 +143,7 @@ impl TrustScoreStore for InMemoryTrustScoreStore {
     }
 
     async fn list_ids(&self) -> Result<Vec<String>> {
-        let scores = self.scores.read().await;
+        let scores = self.scores.lock().await;
         Ok(scores.keys().cloned().collect())
     }
 }

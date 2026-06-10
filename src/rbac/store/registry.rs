@@ -5,6 +5,9 @@ use std::{
 
 use crate::rbac::traits::{Permission, PermissionRegistry, Role, RoleRegistry};
 
+#[cfg(feature = "rbac-hierarchy")]
+use crate::rbac::hierarchy::HierarchicalRole;
+
 #[derive(Debug, Clone)]
 pub struct SimpleRole<P: Permission> {
     name: String,
@@ -89,6 +92,22 @@ where
 
     pub fn set_parents(&mut self, role_name: &str, parents: Vec<String>) {
         self.parents.insert(role_name.to_string(), parents);
+    }
+}
+
+#[cfg(feature = "rbac-hierarchy")]
+impl<R, P> StaticRoleRegistry<R, P>
+where
+    R: HierarchicalRole<P>,
+    P: Permission,
+{
+    pub fn register_hierarchical(&mut self, role: R) {
+        let role_name = role.role_name().to_string();
+        let parents = role.parent_roles();
+        if !parents.is_empty() {
+            self.parents.insert(role_name.clone(), parents);
+        }
+        self.roles.insert(role_name, role);
     }
 }
 

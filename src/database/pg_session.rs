@@ -22,7 +22,7 @@ impl PersistentSessionStore for PgSessionStore {
         let context_str = row
             .context
             .as_ref()
-            .map(|v| serde_json::to_string(v))
+            .map(serde_json::to_string)
             .transpose()?;
         let stmt = Statement::from_sql_and_values(
             self.conn.get_database_backend(),

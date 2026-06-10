@@ -127,19 +127,17 @@ mod tests {
 
     fn build_hierarchy() -> StaticRoleRegistry<HierarchyNode<TestPerm>, TestPerm> {
         let mut reg = StaticRoleRegistry::new();
-        reg.register(
+        reg.register_hierarchical(
             HierarchyNode::new("admin", std::iter::once(TestPerm::Admin).collect())
                 .with_parents(vec!["operator".to_string(), "auditor".to_string()]),
         );
-        reg.set_parents("admin", vec!["operator".to_string(), "auditor".to_string()]);
-        reg.register(
+        reg.register_hierarchical(
             HierarchyNode::new(
                 "operator",
                 [TestPerm::Write, TestPerm::Delete].into_iter().collect(),
             )
             .with_parents(vec!["viewer".to_string()]),
         );
-        reg.set_parents("operator", vec!["viewer".to_string()]);
         reg.register(HierarchyNode::new(
             "auditor",
             std::iter::once(TestPerm::Read).collect(),
@@ -196,16 +194,14 @@ mod tests {
     #[test]
     fn test_detect_cycle() {
         let mut reg = StaticRoleRegistry::new();
-        reg.register(
+        reg.register_hierarchical(
             HierarchyNode::new("a", std::iter::once(TestPerm::Read).collect())
                 .with_parents(vec!["b".to_string()]),
         );
-        reg.set_parents("a", vec!["b".to_string()]);
-        reg.register(
+        reg.register_hierarchical(
             HierarchyNode::new("b", std::iter::once(TestPerm::Write).collect())
                 .with_parents(vec!["a".to_string()]),
         );
-        reg.set_parents("b", vec!["a".to_string()]);
         assert!(detect_cycle("a", &reg));
         assert!(detect_cycle("b", &reg));
     }
@@ -213,27 +209,24 @@ mod tests {
     #[test]
     fn test_detect_self_cycle() {
         let mut reg = StaticRoleRegistry::new();
-        reg.register(
+        reg.register_hierarchical(
             HierarchyNode::new("self_ref", std::iter::once(TestPerm::Read).collect())
                 .with_parents(vec!["self_ref".to_string()]),
         );
-        reg.set_parents("self_ref", vec!["self_ref".to_string()]);
         assert!(detect_cycle("self_ref", &reg));
     }
 
     #[test]
     fn test_resolve_chain_with_cycle_terminates() {
         let mut reg = StaticRoleRegistry::new();
-        reg.register(
+        reg.register_hierarchical(
             HierarchyNode::new("a", std::iter::once(TestPerm::Read).collect())
                 .with_parents(vec!["b".to_string()]),
         );
-        reg.set_parents("a", vec!["b".to_string()]);
-        reg.register(
+        reg.register_hierarchical(
             HierarchyNode::new("b", std::iter::once(TestPerm::Write).collect())
                 .with_parents(vec!["a".to_string()]),
         );
-        reg.set_parents("b", vec!["a".to_string()]);
         let perms = resolve_role_chain("a", &reg);
         assert!(perms.contains(&TestPerm::Read));
         assert!(perms.contains(&TestPerm::Write));
@@ -242,21 +235,18 @@ mod tests {
     #[test]
     fn test_three_way_cycle() {
         let mut reg = StaticRoleRegistry::new();
-        reg.register(
+        reg.register_hierarchical(
             HierarchyNode::new("a", std::iter::once(TestPerm::Read).collect())
                 .with_parents(vec!["b".to_string()]),
         );
-        reg.set_parents("a", vec!["b".to_string()]);
-        reg.register(
+        reg.register_hierarchical(
             HierarchyNode::new("b", std::iter::once(TestPerm::Write).collect())
                 .with_parents(vec!["c".to_string()]),
         );
-        reg.set_parents("b", vec!["c".to_string()]);
-        reg.register(
+        reg.register_hierarchical(
             HierarchyNode::new("c", std::iter::once(TestPerm::Delete).collect())
                 .with_parents(vec!["a".to_string()]),
         );
-        reg.set_parents("c", vec!["a".to_string()]);
         assert!(detect_cycle("a", &reg));
         assert!(detect_cycle("b", &reg));
         assert!(detect_cycle("c", &reg));
@@ -268,11 +258,10 @@ mod tests {
     #[test]
     fn test_deep_chain() {
         let mut reg = StaticRoleRegistry::new();
-        reg.register(
+        reg.register_hierarchical(
             HierarchyNode::new("level0", std::iter::once(TestPerm::Admin).collect())
                 .with_parents(vec!["level1".to_string()]),
         );
-        reg.set_parents("level0", vec!["level1".to_string()]);
         for i in 1..10 {
             reg.register(HierarchyNode::new(
                 format!("level{i}"),
@@ -287,21 +276,18 @@ mod tests {
     #[test]
     fn test_diamond_inheritance() {
         let mut reg = StaticRoleRegistry::new();
-        reg.register(
+        reg.register_hierarchical(
             HierarchyNode::new("root", std::iter::once(TestPerm::Admin).collect())
                 .with_parents(vec!["left".to_string(), "right".to_string()]),
         );
-        reg.set_parents("root", vec!["left".to_string(), "right".to_string()]);
-        reg.register(
+        reg.register_hierarchical(
             HierarchyNode::new("left", std::iter::once(TestPerm::Read).collect())
                 .with_parents(vec!["base".to_string()]),
         );
-        reg.set_parents("left", vec!["base".to_string()]);
-        reg.register(
+        reg.register_hierarchical(
             HierarchyNode::new("right", std::iter::once(TestPerm::Write).collect())
                 .with_parents(vec!["base".to_string()]),
         );
-        reg.set_parents("right", vec!["base".to_string()]);
         reg.register(HierarchyNode::new(
             "base",
             std::iter::once(TestPerm::Delete).collect(),
