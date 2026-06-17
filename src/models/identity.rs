@@ -14,6 +14,7 @@ derive_enum!(
         },
         Basic {
             id: Uuid,
+            created_at: DateTime<Utc>,
         },
         Temporary {
             id: Uuid,

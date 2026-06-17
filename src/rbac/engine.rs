@@ -1,3 +1,4 @@
+use anyhow::Result;
 use std::{
     collections::{HashMap, HashSet},
     marker::PhantomData,
@@ -5,32 +6,31 @@ use std::{
     time::Duration,
 };
 
+#[cfg(feature = "rbac-hierarchy")]
+use crate::rbac::hierarchy::resolve_role_chain;
 use crate::rbac::{
     cache::{PermissionCache, TtlPermissionCache},
-    hierarchy::{resolve_role_chain, HierarchicalRole},
     shared::Shared,
-    traits::{AssignmentStore, Permission, PermissionRegistry, Role, RoleRegistry, Subject},
+    traits::{AssignmentStore, Permission, PermissionRegistry, RoleRegistry, Subject},
 };
 
-pub struct RbacEngine<S, P, R, A>
+pub struct RbacEngine<S, P, A>
 where
     S: Subject,
     P: Permission,
-    R: Role<P>,
     A: AssignmentStore<S, P>,
 {
-    role_registry: Shared<dyn RoleRegistry<R, P>>,
+    role_registry: Shared<dyn RoleRegistry<P>>,
     permission_registry: Shared<dyn PermissionRegistry<P>>,
     assignment_store: Shared<A>,
     cache: Shared<dyn PermissionCache<S, P>>,
-    _phantom: PhantomData<(S, R)>,
+    _phantom: PhantomData<S>,
 }
 
-impl<S, P, R, A> Clone for RbacEngine<S, P, R, A>
+impl<S, P, A> Clone for RbacEngine<S, P, A>
 where
     S: Subject,
     P: Permission,
-    R: Role<P>,
     A: AssignmentStore<S, P>,
 {
     fn clone(&self) -> Self {
@@ -44,15 +44,15 @@ where
     }
 }
 
-impl<S, P, R, A> RbacEngine<S, P, R, A>
+impl<S, P, A> RbacEngine<S, P, A>
 where
     S: Subject,
     P: Permission,
-    R: Role<P>,
     A: AssignmentStore<S, P>,
 {
+    #[must_use]
     pub fn new(
-        role_registry: impl RoleRegistry<R, P> + 'static,
+        role_registry: impl RoleRegistry<P> + 'static,
         permission_registry: impl PermissionRegistry<P> + 'static,
         assignment_store: A,
     ) -> Self {
@@ -61,7 +61,7 @@ where
             permission_registry: Shared::from_arc_unsized(Arc::new(permission_registry)),
             assignment_store: Shared::new(assignment_store),
             cache: Shared::from_arc_unsized(Arc::new(TtlPermissionCache::new(
-                Duration::from_mins(5),
+                Duration::from_secs(300),
             ))),
             _phantom: PhantomData,
         }
@@ -74,7 +74,7 @@ where
     }
 
     #[must_use]
-    pub fn role_registry(&self) -> Shared<dyn RoleRegistry<R, P>> {
+    pub fn role_registry(&self) -> Shared<dyn RoleRegistry<P>> {
         self.role_registry.clone()
     }
 
@@ -88,130 +88,204 @@ where
         self.assignment_store.clone()
     }
 
-    pub async fn check(&self, subject: &S, permission: &P) -> bool {
-        if let Some(granted) = self.cache.get(subject, permission) {
-            return granted;
+    #[must_use]
+    pub fn cache(&self) -> Shared<dyn PermissionCache<S, P>> {
+        self.cache.clone()
+    }
+
+    pub async fn invalidate_subject_cache(&self, subject: &S) {
+        self.cache.invalidate_subject(subject).await;
+    }
+
+    pub async fn invalidate_all_cache(&self) {
+        self.cache.invalidate_all().await;
+    }
+
+    /// Check cache, denied permissions, and extra permissions.
+    /// Returns `Ok(Some(result))` if a decision was reached,
+    /// `Err(e)` if a store error caused denial (error preserved),
+    /// `Ok(None)` if role checking is still needed.
+    async fn check_cached_deny_extra(&self, subject: &S, permission: &P) -> Result<Option<bool>> {
+        if let Some(granted) = self.cache.get(subject, permission).await {
+            return Ok(Some(granted));
         }
 
-        if let Ok(denied) = self.assignment_store.denied_permissions(subject).await {
-            if denied.contains(permission) {
-                self.cache.set(subject, permission, false);
+        match self.assignment_store.denied_permissions(subject).await {
+            Ok(denied) => {
+                if denied.contains(permission) {
+                    self.cache.set(subject, permission, false).await;
+                    return Ok(Some(false));
+                }
+            }
+            Err(e) => {
+                tracing::error!(target: "kirino::rbac::engine",
+                    subject = %subject.subject_id(),
+                    error = %e,
+                    "failed to query denied permissions — denying access (not cached)"
+                );
+                return Err(e);
+            }
+        }
+
+        match self.assignment_store.extra_permissions(subject).await {
+            Ok(extra) => {
+                if extra.contains(permission) {
+                    self.cache.set(subject, permission, true).await;
+                    return Ok(Some(true));
+                }
+            }
+            Err(e) => {
+                tracing::error!(target: "kirino::rbac::engine",
+                    subject = %subject.subject_id(),
+                    error = %e,
+                    "failed to query extra permissions — denying access (not cached)"
+                );
+                return Err(e);
+            }
+        }
+
+        Ok(None)
+    }
+
+    #[must_use]
+    pub async fn check(&self, subject: &S, permission: &P) -> bool {
+        match self.check_cached_deny_extra(subject, permission).await {
+            Ok(Some(result)) => return result,
+            Err(e) => {
+                tracing::error!(target: "kirino::rbac::engine",
+                    subject = %subject.subject_id(),
+                    error = %e,
+                    "store error during permission check — denying access"
+                );
                 return false;
             }
+            Ok(None) => {}
         }
 
-        if let Ok(extra) = self.assignment_store.extra_permissions(subject).await {
-            if extra.contains(permission) {
-                self.cache.set(subject, permission, true);
-                return true;
+        match self.assignment_store.roles_of(subject).await {
+            Ok(role_names) => {
+                for role_name in &role_names {
+                    if let Some(perms) = self.role_registry.get_role_permissions(role_name) {
+                        if perms.contains(permission) {
+                            self.cache.set(subject, permission, true).await;
+                            return true;
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!(target: "kirino::rbac::engine",
+                    subject = %subject.subject_id(),
+                    error = %e,
+                    "failed to query roles"
+                );
             }
         }
 
-        if let Ok(role_names) = self.assignment_store.roles_of(subject).await {
-            for role_name in &role_names {
-                if let Some(role) = self.role_registry.get_role(role_name) {
-                    if role.permissions().contains(permission) {
-                        self.cache.set(subject, permission, true);
+        self.cache.set(subject, permission, false).await;
+        false
+    }
+
+    #[must_use]
+    pub async fn check_batch(&self, subject: &S, permissions: &HashSet<P>) -> HashMap<P, bool> {
+        use futures::stream::{self, StreamExt};
+
+        let engine = self.clone();
+        let subject = subject.clone();
+        let perms: Vec<P> = permissions.iter().cloned().collect();
+        let outcomes: Vec<bool> = stream::iter(perms.clone())
+            .map(move |perm| {
+                let engine = engine.clone();
+                let subject = subject.clone();
+                async move { engine.check(&subject, &perm).await }
+            })
+            .buffered(64)
+            .collect()
+            .await;
+        perms.into_iter().zip(outcomes).collect()
+    }
+
+    pub async fn effective_permissions(&self, subject: &S) -> Result<HashSet<P>> {
+        let mut perms = HashSet::new();
+
+        let role_names = self.assignment_store.roles_of(subject).await?;
+        for role_name in &role_names {
+            if let Some(role_perms) = self.role_registry.get_role_permissions(role_name) {
+                perms.extend(role_perms);
+            }
+        }
+
+        let extra = self.assignment_store.extra_permissions(subject).await?;
+        perms.extend(extra);
+
+        let denied = self.assignment_store.denied_permissions(subject).await?;
+        perms.retain(|p| !denied.contains(p));
+
+        Ok(perms)
+    }
+}
+
+#[cfg(feature = "rbac-hierarchy")]
+impl<S, P, A> RbacEngine<S, P, A>
+where
+    S: Subject,
+    P: Permission,
+    A: AssignmentStore<S, P>,
+{
+    #[must_use]
+    pub async fn check_hierarchical(&self, subject: &S, permission: &P) -> bool {
+        match self.check_cached_deny_extra(subject, permission).await {
+            Ok(Some(result)) => return result,
+            Err(e) => {
+                tracing::error!(target: "kirino::rbac::engine",
+                    subject = %subject.subject_id(),
+                    error = %e,
+                    "store error during hierarchical permission check — denying access"
+                );
+                return false;
+            }
+            Ok(None) => {}
+        }
+
+        match self.assignment_store.roles_of(subject).await {
+            Ok(role_names) => {
+                for role_name in &role_names {
+                    let inherited = resolve_role_chain(role_name, &*self.role_registry);
+                    if inherited.contains(permission) {
+                        self.cache.set(subject, permission, true).await;
                         return true;
                     }
                 }
             }
+            Err(e) => {
+                tracing::warn!(target: "kirino::rbac::engine",
+                    subject = %subject.subject_id(),
+                    error = %e,
+                    "failed to query roles for hierarchical check"
+                );
+            }
         }
 
-        self.cache.set(subject, permission, false);
+        self.cache.set(subject, permission, false).await;
         false
     }
 
-    pub async fn check_batch(&self, subject: &S, permissions: &HashSet<P>) -> HashMap<P, bool> {
-        let mut results = HashMap::with_capacity(permissions.len());
-        for perm in permissions {
-            results.insert(perm.clone(), self.check(subject, perm).await);
-        }
-        results
-    }
-
-    pub async fn effective_permissions(&self, subject: &S) -> HashSet<P> {
+    pub async fn effective_permissions_hierarchical(&self, subject: &S) -> Result<HashSet<P>> {
         let mut perms = HashSet::new();
 
-        if let Ok(role_names) = self.assignment_store.roles_of(subject).await {
-            for role_name in &role_names {
-                if let Some(role) = self.role_registry.get_role(role_name) {
-                    perms.extend(role.permissions().iter().cloned());
-                }
-            }
+        let role_names = self.assignment_store.roles_of(subject).await?;
+        for role_name in &role_names {
+            let inherited = resolve_role_chain(role_name, &*self.role_registry);
+            perms.extend(inherited);
         }
 
-        if let Ok(extra) = self.assignment_store.extra_permissions(subject).await {
-            perms.extend(extra);
-        }
+        let extra = self.assignment_store.extra_permissions(subject).await?;
+        perms.extend(extra);
 
-        if let Ok(denied) = self.assignment_store.denied_permissions(subject).await {
-            perms.retain(|p| !denied.contains(p));
-        }
+        let denied = self.assignment_store.denied_permissions(subject).await?;
+        perms.retain(|p| !denied.contains(p));
 
-        perms
-    }
-}
-
-impl<S, P, R, A> RbacEngine<S, P, R, A>
-where
-    S: Subject,
-    P: Permission,
-    R: HierarchicalRole<P>,
-    A: AssignmentStore<S, P>,
-{
-    pub async fn check_hierarchical(&self, subject: &S, permission: &P) -> bool {
-        if let Some(granted) = self.cache.get(subject, permission) {
-            return granted;
-        }
-
-        if let Ok(denied) = self.assignment_store.denied_permissions(subject).await {
-            if denied.contains(permission) {
-                self.cache.set(subject, permission, false);
-                return false;
-            }
-        }
-
-        if let Ok(extra) = self.assignment_store.extra_permissions(subject).await {
-            if extra.contains(permission) {
-                self.cache.set(subject, permission, true);
-                return true;
-            }
-        }
-
-        if let Ok(role_names) = self.assignment_store.roles_of(subject).await {
-            for role_name in &role_names {
-                let inherited = resolve_role_chain(role_name, &*self.role_registry);
-                if inherited.contains(permission) {
-                    self.cache.set(subject, permission, true);
-                    return true;
-                }
-            }
-        }
-
-        self.cache.set(subject, permission, false);
-        false
-    }
-
-    pub async fn effective_permissions_hierarchical(&self, subject: &S) -> HashSet<P> {
-        let mut perms = HashSet::new();
-
-        if let Ok(role_names) = self.assignment_store.roles_of(subject).await {
-            for role_name in &role_names {
-                let inherited = resolve_role_chain(role_name, &*self.role_registry);
-                perms.extend(inherited);
-            }
-        }
-
-        if let Ok(extra) = self.assignment_store.extra_permissions(subject).await {
-            perms.extend(extra);
-        }
-
-        if let Ok(denied) = self.assignment_store.denied_permissions(subject).await {
-            perms.retain(|p| !denied.contains(p));
-        }
-
-        perms
+        Ok(perms)
     }
 }
 
@@ -220,41 +294,11 @@ mod tests {
     use super::*;
     use crate::rbac::store::memory::InMemoryAssignmentStore;
     use crate::rbac::store::registry::{SimpleRole, StaticPermissionRegistry, StaticRoleRegistry};
+    use crate::test_utils::{TestPerm, TestSubject};
+    use anyhow::anyhow;
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-    enum TestPerm {
-        Read,
-        Write,
-        Delete,
-        Admin,
-    }
-
-    impl Permission for TestPerm {
-        fn name(&self) -> &str {
-            match self {
-                TestPerm::Read => "read",
-                TestPerm::Write => "write",
-                TestPerm::Delete => "delete",
-                TestPerm::Admin => "admin",
-            }
-        }
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-    struct TestSubject(String);
-
-    impl Subject for TestSubject {
-        fn subject_id(&self) -> &str {
-            &self.0
-        }
-    }
-
-    fn build_engine() -> RbacEngine<
-        TestSubject,
-        TestPerm,
-        SimpleRole<TestPerm>,
-        InMemoryAssignmentStore<TestSubject, TestPerm>,
-    > {
+    fn build_engine(
+    ) -> RbacEngine<TestSubject, TestPerm, InMemoryAssignmentStore<TestSubject, TestPerm>> {
         let mut role_reg = StaticRoleRegistry::new();
         role_reg.register(SimpleRole::new(
             "admin",
@@ -269,7 +313,7 @@ mod tests {
         ));
         role_reg.register(SimpleRole::new(
             "viewer",
-            [TestPerm::Read].into_iter().collect(),
+            std::iter::once(TestPerm::Read).collect(),
         ));
         role_reg.register(SimpleRole::new(
             "editor",
@@ -342,12 +386,30 @@ mod tests {
             .unwrap();
         engine
             .assignment_store()
-            .set_denied_permissions(&user, [TestPerm::Admin].into_iter().collect())
+            .set_denied_permissions(&user, std::iter::once(TestPerm::Admin).collect())
             .await
             .unwrap();
 
         assert!(engine.check(&user, &TestPerm::Read).await);
         assert!(!engine.check(&user, &TestPerm::Admin).await);
+    }
+
+    #[tokio::test]
+    async fn test_deny_overrides_extra() {
+        let engine = build_engine();
+        let user = TestSubject("deny-extra-user".to_string());
+        engine
+            .assignment_store()
+            .set_extra_permissions(&user, std::iter::once(TestPerm::Write).collect())
+            .await
+            .unwrap();
+        engine
+            .assignment_store()
+            .set_denied_permissions(&user, std::iter::once(TestPerm::Write).collect())
+            .await
+            .unwrap();
+
+        assert!(!engine.check(&user, &TestPerm::Write).await);
     }
 
     #[tokio::test]
@@ -361,7 +423,7 @@ mod tests {
             .unwrap();
         engine
             .assignment_store()
-            .set_extra_permissions(&user, [TestPerm::Write].into_iter().collect())
+            .set_extra_permissions(&user, std::iter::once(TestPerm::Write).collect())
             .await
             .unwrap();
 
@@ -395,6 +457,14 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_check_batch_empty() {
+        let engine = build_engine();
+        let user = TestSubject("batch-empty".to_string());
+        let results = engine.check_batch(&user, &HashSet::new()).await;
+        assert!(results.is_empty());
+    }
+
+    #[tokio::test]
     async fn test_effective_permissions() {
         let engine = build_engine();
         let user = TestSubject("ep-user".to_string());
@@ -405,11 +475,11 @@ mod tests {
             .unwrap();
         engine
             .assignment_store()
-            .set_extra_permissions(&user, [TestPerm::Delete].into_iter().collect())
+            .set_extra_permissions(&user, std::iter::once(TestPerm::Delete).collect())
             .await
             .unwrap();
 
-        let eff = engine.effective_permissions(&user).await;
+        let eff = engine.effective_permissions(&user).await.unwrap();
         assert!(eff.contains(&TestPerm::Read));
         assert!(eff.contains(&TestPerm::Write));
         assert!(eff.contains(&TestPerm::Delete));
@@ -434,11 +504,19 @@ mod tests {
             .await
             .unwrap();
 
-        let eff = engine.effective_permissions(&user).await;
+        let eff = engine.effective_permissions(&user).await.unwrap();
         assert!(eff.contains(&TestPerm::Read));
         assert!(eff.contains(&TestPerm::Write));
         assert!(!eff.contains(&TestPerm::Admin));
         assert!(!eff.contains(&TestPerm::Delete));
+    }
+
+    #[tokio::test]
+    async fn test_effective_permissions_no_roles() {
+        let engine = build_engine();
+        let anon = TestSubject("ep-anon".to_string());
+        let eff = engine.effective_permissions(&anon).await.unwrap();
+        assert!(eff.is_empty());
     }
 
     #[tokio::test]
@@ -493,8 +571,8 @@ mod tests {
     async fn test_role_registry_accessor() {
         let engine = build_engine();
         let reg = engine.role_registry();
-        assert!(reg.get_role("admin").is_some());
-        assert!(reg.get_role("nonexistent").is_none());
+        assert!(reg.get_role_permissions("admin").is_some());
+        assert!(reg.get_role_permissions("nonexistent").is_none());
     }
 
     #[tokio::test]
@@ -504,5 +582,307 @@ mod tests {
         assert!(reg.get_permission("read").is_some());
         assert!(reg.get_permission("nonexistent").is_none());
         assert_eq!(reg.all_permissions().len(), 4);
+    }
+
+    #[tokio::test]
+    async fn test_cache_invalidation() {
+        let engine = build_engine();
+        let user = TestSubject("cache-user".to_string());
+        engine
+            .assignment_store()
+            .assign_role(&user, "admin")
+            .await
+            .unwrap();
+
+        assert!(engine.check(&user, &TestPerm::Admin).await);
+
+        engine.invalidate_subject_cache(&user).await;
+        engine
+            .assignment_store()
+            .revoke_role(&user, "admin")
+            .await
+            .unwrap();
+
+        assert!(!engine.check(&user, &TestPerm::Admin).await);
+    }
+
+    #[tokio::test]
+    async fn test_cache_invalidate_all() {
+        let engine = build_engine();
+        let user1 = TestSubject("cache-u1".to_string());
+        let user2 = TestSubject("cache-u2".to_string());
+        engine
+            .assignment_store()
+            .assign_role(&user1, "viewer")
+            .await
+            .unwrap();
+        engine
+            .assignment_store()
+            .assign_role(&user2, "viewer")
+            .await
+            .unwrap();
+
+        assert!(engine.check(&user1, &TestPerm::Read).await);
+        assert!(engine.check(&user2, &TestPerm::Read).await);
+
+        engine.invalidate_all_cache().await;
+        engine
+            .assignment_store()
+            .revoke_role(&user1, "viewer")
+            .await
+            .unwrap();
+
+        assert!(!engine.check(&user1, &TestPerm::Read).await);
+        assert!(engine.check(&user2, &TestPerm::Read).await);
+    }
+
+    #[tokio::test]
+    async fn test_multiple_roles() {
+        let engine = build_engine();
+        let user = TestSubject("multi-role".to_string());
+        engine
+            .assignment_store()
+            .assign_role(&user, "viewer")
+            .await
+            .unwrap();
+        engine
+            .assignment_store()
+            .assign_role(&user, "editor")
+            .await
+            .unwrap();
+
+        assert!(engine.check(&user, &TestPerm::Read).await);
+        assert!(engine.check(&user, &TestPerm::Write).await);
+        assert!(!engine.check(&user, &TestPerm::Admin).await);
+    }
+
+    #[tokio::test]
+    async fn test_assign_duplicate_role() {
+        let engine = build_engine();
+        let user = TestSubject("dup-role".to_string());
+        engine
+            .assignment_store()
+            .assign_role(&user, "viewer")
+            .await
+            .unwrap();
+        engine
+            .assignment_store()
+            .assign_role(&user, "viewer")
+            .await
+            .unwrap();
+
+        let roles = engine.assignment_store().roles_of(&user).await.unwrap();
+        assert_eq!(roles.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_checks() {
+        let engine = Shared::new(build_engine());
+        let user = TestSubject("user1".to_string());
+        let read = TestPerm::Read;
+
+        engine
+            .assignment_store()
+            .assign_role(&user, "admin")
+            .await
+            .unwrap();
+
+        let handles: Vec<_> = (0..20)
+            .map(|_| {
+                let engine = engine.clone();
+                let user = user.clone();
+                tokio::spawn(async move { engine.check(&user, &read).await })
+            })
+            .collect();
+
+        for h in handles {
+            assert!(h.await.unwrap());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_check_nonexistent_role_in_registry() {
+        let engine = Shared::new(build_engine());
+        let user = TestSubject("user1".to_string());
+
+        engine
+            .assignment_store()
+            .assign_role(&user, "nonexistent-role")
+            .await
+            .unwrap();
+
+        assert!(!engine.check(&user, &TestPerm::Write).await);
+    }
+
+    struct FailingAssignmentStore;
+
+    #[async_trait::async_trait]
+    impl AssignmentStore<TestSubject, TestPerm> for FailingAssignmentStore {
+        async fn assign_role(&self, _: &TestSubject, _: &str) -> Result<()> {
+            Ok(())
+        }
+        async fn revoke_role(&self, _: &TestSubject, _: &str) -> Result<()> {
+            Ok(())
+        }
+        async fn roles_of(&self, _: &TestSubject) -> Result<Vec<String>> {
+            Err(anyhow!("store error"))
+        }
+        async fn subjects_with_role(&self, _: &str) -> Result<Vec<String>> {
+            Ok(vec![])
+        }
+        async fn extra_permissions(&self, _: &TestSubject) -> Result<HashSet<TestPerm>> {
+            Err(anyhow!("store error"))
+        }
+        async fn set_extra_permissions(&self, _: &TestSubject, _: HashSet<TestPerm>) -> Result<()> {
+            Ok(())
+        }
+        async fn denied_permissions(&self, _: &TestSubject) -> Result<HashSet<TestPerm>> {
+            Err(anyhow!("store error"))
+        }
+        async fn set_denied_permissions(
+            &self,
+            _: &TestSubject,
+            _: HashSet<TestPerm>,
+        ) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    struct DeniedOnlyFailingStore(InMemoryAssignmentStore<TestSubject, TestPerm>);
+
+    #[async_trait::async_trait]
+    impl AssignmentStore<TestSubject, TestPerm> for DeniedOnlyFailingStore {
+        async fn assign_role(&self, subject: &TestSubject, role: &str) -> Result<()> {
+            self.0.assign_role(subject, role).await
+        }
+        async fn revoke_role(&self, subject: &TestSubject, role: &str) -> Result<()> {
+            self.0.revoke_role(subject, role).await
+        }
+        async fn roles_of(&self, subject: &TestSubject) -> Result<Vec<String>> {
+            self.0.roles_of(subject).await
+        }
+        async fn subjects_with_role(&self, role: &str) -> Result<Vec<String>> {
+            self.0.subjects_with_role(role).await
+        }
+        async fn extra_permissions(&self, subject: &TestSubject) -> Result<HashSet<TestPerm>> {
+            self.0.extra_permissions(subject).await
+        }
+        async fn set_extra_permissions(
+            &self,
+            subject: &TestSubject,
+            perms: HashSet<TestPerm>,
+        ) -> Result<()> {
+            self.0.set_extra_permissions(subject, perms).await
+        }
+        async fn denied_permissions(&self, _: &TestSubject) -> Result<HashSet<TestPerm>> {
+            Err(anyhow!("denied store error"))
+        }
+        async fn set_denied_permissions(
+            &self,
+            subject: &TestSubject,
+            perms: HashSet<TestPerm>,
+        ) -> Result<()> {
+            self.0.set_denied_permissions(subject, perms).await
+        }
+    }
+
+    #[tokio::test]
+    async fn test_deny_on_denied_permissions_store_error() {
+        let engine = RbacEngine::<TestSubject, TestPerm, FailingAssignmentStore>::new(
+            StaticRoleRegistry::<SimpleRole<TestPerm>, TestPerm>::new(),
+            StaticPermissionRegistry::new(HashSet::new()),
+            FailingAssignmentStore,
+        );
+        let user = TestSubject("user".to_string());
+        assert!(!engine.check(&user, &TestPerm::Read).await);
+    }
+
+    struct ExtraOnlyFailingStore(InMemoryAssignmentStore<TestSubject, TestPerm>);
+
+    #[async_trait::async_trait]
+    impl AssignmentStore<TestSubject, TestPerm> for ExtraOnlyFailingStore {
+        async fn assign_role(&self, subject: &TestSubject, role: &str) -> Result<()> {
+            self.0.assign_role(subject, role).await
+        }
+        async fn revoke_role(&self, subject: &TestSubject, role: &str) -> Result<()> {
+            self.0.revoke_role(subject, role).await
+        }
+        async fn roles_of(&self, subject: &TestSubject) -> Result<Vec<String>> {
+            self.0.roles_of(subject).await
+        }
+        async fn subjects_with_role(&self, role: &str) -> Result<Vec<String>> {
+            self.0.subjects_with_role(role).await
+        }
+        async fn extra_permissions(&self, _: &TestSubject) -> Result<HashSet<TestPerm>> {
+            Err(anyhow!("extra store error"))
+        }
+        async fn set_extra_permissions(
+            &self,
+            subject: &TestSubject,
+            perms: HashSet<TestPerm>,
+        ) -> Result<()> {
+            self.0.set_extra_permissions(subject, perms).await
+        }
+        async fn denied_permissions(&self, subject: &TestSubject) -> Result<HashSet<TestPerm>> {
+            self.0.denied_permissions(subject).await
+        }
+        async fn set_denied_permissions(
+            &self,
+            subject: &TestSubject,
+            perms: HashSet<TestPerm>,
+        ) -> Result<()> {
+            self.0.set_denied_permissions(subject, perms).await
+        }
+    }
+
+    #[tokio::test]
+    async fn test_deny_on_extra_permissions_store_error() {
+        let mut role_reg = StaticRoleRegistry::new();
+        role_reg.register(SimpleRole::new(
+            "viewer",
+            std::iter::once(TestPerm::Read).collect(),
+        ));
+        let perm_reg = StaticPermissionRegistry::new(std::iter::once(TestPerm::Read).collect());
+
+        let engine = RbacEngine::<TestSubject, TestPerm, ExtraOnlyFailingStore>::new(
+            role_reg,
+            perm_reg,
+            ExtraOnlyFailingStore(InMemoryAssignmentStore::new()),
+        );
+
+        let user = TestSubject("user".to_string());
+        engine
+            .assignment_store()
+            .assign_role(&user, "viewer")
+            .await
+            .unwrap();
+
+        assert!(!engine.check(&user, &TestPerm::Read).await);
+    }
+
+    #[tokio::test]
+    async fn test_deny_on_denied_permissions_store_error_with_role() {
+        let mut role_reg = StaticRoleRegistry::new();
+        role_reg.register(SimpleRole::new(
+            "admin",
+            [TestPerm::Read, TestPerm::Write].into_iter().collect(),
+        ));
+        let perm_reg =
+            StaticPermissionRegistry::new([TestPerm::Read, TestPerm::Write].into_iter().collect());
+
+        let engine = RbacEngine::<TestSubject, TestPerm, DeniedOnlyFailingStore>::new(
+            role_reg,
+            perm_reg,
+            DeniedOnlyFailingStore(InMemoryAssignmentStore::new()),
+        );
+        let user = TestSubject("user".to_string());
+        engine
+            .assignment_store()
+            .assign_role(&user, "admin")
+            .await
+            .unwrap();
+
+        assert!(!engine.check(&user, &TestPerm::Read).await);
+        assert!(!engine.check(&user, &TestPerm::Write).await);
     }
 }

@@ -38,6 +38,21 @@ pub enum Strategy {
     Block { reason: String },
 }
 
+impl fmt::Display for Strategy {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Strategy::Allow { auto_approve } => {
+                write!(f, "Allow(auto_approve={auto_approve})")
+            }
+            Strategy::Throttle { max_rate_per_min } => {
+                write!(f, "Throttle(max={max_rate_per_min}/min)")
+            }
+            Strategy::RequireConfirmation => write!(f, "RequireConfirmation"),
+            Strategy::Block { reason } => write!(f, "Block({reason})"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubScores {
     pub delegator_weight: f64,

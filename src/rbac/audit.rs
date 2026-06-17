@@ -1,6 +1,10 @@
+use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, VecDeque},
+    sync::Arc,
+};
 use tokio::sync::RwLock;
 
 type AlertHook = Box<dyn Fn(AuditAlert) + Send + Sync>;
@@ -128,11 +132,14 @@ impl AuditCondition {
                 .verdict
                 .as_ref()
                 .is_some_and(|v| v.sub_scores.domain_mismatch >= *min_weight),
+            // RapidDenials cannot be evaluated at the condition level because it
+            // requires access to the AuditSink. Evaluation happens in
+            // InMemoryAuditPolicyEngine::evaluate which has access to the sink.
             AuditCondition::RapidDenials { .. } => false,
-            AuditCondition::TrustBelow { threshold } => entry
-                .verdict
-                .as_ref()
-                .is_some_and(|v| v.sub_scores.trust_penalty >= 1.0 - *threshold),
+            AuditCondition::TrustBelow { threshold } => entry.verdict.as_ref().is_some_and(|v| {
+                let trust = 1.0 - v.sub_scores.trust_penalty;
+                trust <= *threshold
+            }),
             AuditCondition::Composite {
                 conditions,
                 operator,
@@ -156,7 +163,9 @@ pub struct AuditAlert {
 #[async_trait::async_trait]
 pub trait AuditSink: Send + Sync {
     async fn append(&self, entry: AuditEntry);
+    #[must_use]
     async fn query(&self, filter: &AuditFilter) -> Vec<AuditEntry>;
+    #[must_use]
     async fn count(&self, filter: &AuditFilter) -> u64;
 }
 
@@ -173,14 +182,18 @@ pub struct AuditFilter {
 
 #[async_trait::async_trait]
 pub trait AuditPolicyEngine: Send + Sync {
+    #[must_use]
     async fn evaluate(&self, entry: &AuditEntry) -> Vec<AuditAlert>;
     async fn add_rule(&self, rule: AuditRule);
-    async fn remove_rule(&self, rule_id: &str);
+    #[must_use]
+    async fn remove_rule(&self, rule_id: &str) -> Result<bool>;
+    #[must_use]
     async fn list_rules(&self) -> Vec<AuditRule>;
 }
 
 #[async_trait::async_trait]
 pub trait AuditAnalyzer: Send + Sync {
+    #[must_use]
     async fn analyze(&self, entries: &[AuditEntry]) -> AuditAnalysisResult;
 }
 
@@ -206,8 +219,8 @@ pub struct SubjectStats {
 const DEFAULT_MAX_AUDIT_ENTRIES: usize = 10000;
 
 pub struct InMemoryAuditSink {
-    entries: RwLock<Vec<AuditEntry>>,
-    next_id: RwLock<u64>,
+    entries: RwLock<VecDeque<AuditEntry>>,
+    next_id: std::sync::atomic::AtomicU64,
     max_entries: usize,
 }
 
@@ -215,8 +228,8 @@ impl InMemoryAuditSink {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            entries: RwLock::new(Vec::new()),
-            next_id: RwLock::new(1),
+            entries: RwLock::new(VecDeque::new()),
+            next_id: std::sync::atomic::AtomicU64::new(1),
             max_entries: DEFAULT_MAX_AUDIT_ENTRIES,
         }
     }
@@ -224,8 +237,8 @@ impl InMemoryAuditSink {
     #[must_use]
     pub fn with_max_entries(max_entries: usize) -> Self {
         Self {
-            entries: RwLock::new(Vec::new()),
-            next_id: RwLock::new(1),
+            entries: RwLock::new(VecDeque::new()),
+            next_id: std::sync::atomic::AtomicU64::new(1),
             max_entries,
         }
     }
@@ -237,17 +250,52 @@ impl Default for InMemoryAuditSink {
     }
 }
 
+fn matches_filter(entry: &AuditEntry, filter: &AuditFilter) -> bool {
+    if let Some(ref sid) = filter.subject_id {
+        if entry.subject_id != *sid {
+            return false;
+        }
+    }
+    if let Some(g) = filter.granted {
+        if entry.granted != g {
+            return false;
+        }
+    }
+    if let Some(ref perm) = filter.permission {
+        if entry.permission != *perm {
+            return false;
+        }
+    }
+    if let Some(since) = filter.since {
+        if entry.created_at < since {
+            return false;
+        }
+    }
+    if let Some(until) = filter.until {
+        if entry.created_at > until {
+            return false;
+        }
+    }
+    if let Some(min_risk) = filter.min_risk {
+        let risk = entry.verdict.as_ref().map_or(0.0, |v| v.risk_score);
+        if risk < min_risk {
+            return false;
+        }
+    }
+    true
+}
+
 #[async_trait::async_trait]
 impl AuditSink for InMemoryAuditSink {
     async fn append(&self, mut entry: AuditEntry) {
-        let mut next_id = self.next_id.write().await;
-        entry.id = *next_id;
-        *next_id += 1;
         let mut entries = self.entries.write().await;
-        entries.push(entry);
-        if entries.len() > self.max_entries {
-            let excess = entries.len() - self.max_entries;
-            entries.drain(0..excess);
+        let id = self
+            .next_id
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        entry.id = id;
+        entries.push_back(entry);
+        while entries.len() > self.max_entries {
+            entries.pop_front();
         }
     }
 
@@ -255,40 +303,7 @@ impl AuditSink for InMemoryAuditSink {
         let entries = self.entries.read().await;
         let mut result: Vec<AuditEntry> = entries
             .iter()
-            .filter(|e| {
-                if let Some(ref sid) = filter.subject_id {
-                    if e.subject_id != *sid {
-                        return false;
-                    }
-                }
-                if let Some(g) = filter.granted {
-                    if e.granted != g {
-                        return false;
-                    }
-                }
-                if let Some(ref perm) = filter.permission {
-                    if e.permission != *perm {
-                        return false;
-                    }
-                }
-                if let Some(since) = filter.since {
-                    if e.created_at < since {
-                        return false;
-                    }
-                }
-                if let Some(until) = filter.until {
-                    if e.created_at > until {
-                        return false;
-                    }
-                }
-                if let Some(min_risk) = filter.min_risk {
-                    let risk = e.verdict.as_ref().map_or(0.0, |v| v.risk_score);
-                    if risk < min_risk {
-                        return false;
-                    }
-                }
-                true
-            })
+            .filter(|e| matches_filter(e, filter))
             .cloned()
             .collect();
 
@@ -300,7 +315,8 @@ impl AuditSink for InMemoryAuditSink {
     }
 
     async fn count(&self, filter: &AuditFilter) -> u64 {
-        self.query(filter).await.len() as u64
+        let entries = self.entries.read().await;
+        entries.iter().filter(|e| matches_filter(e, filter)).count() as u64
     }
 }
 
@@ -320,6 +336,7 @@ impl InMemoryAuditPolicyEngine {
         }
     }
 
+    #[must_use]
     pub fn with_sink(sink: Arc<dyn AuditSink>) -> Self {
         Self {
             rules: RwLock::new(Vec::new()),
@@ -338,20 +355,27 @@ impl Default for InMemoryAuditPolicyEngine {
 #[async_trait::async_trait]
 impl AuditPolicyEngine for InMemoryAuditPolicyEngine {
     async fn evaluate(&self, entry: &AuditEntry) -> Vec<AuditAlert> {
-        let rules = self.rules.read().await;
-        let mut last_triggered = self.last_triggered.write().await;
+        let rules_snapshot = {
+            let rules = self.rules.read().await;
+            rules.clone()
+        };
+
+        let mut last_triggered_snapshot = {
+            let last_triggered = self.last_triggered.read().await;
+            last_triggered.clone()
+        };
+
         let now = Utc::now();
         let mut alerts = Vec::new();
 
-        for rule in rules.iter() {
+        for rule in &rules_snapshot {
             if !rule.enabled {
                 continue;
             }
 
-            if let Some(&last_time) = last_triggered.get(&rule.id) {
-                #[allow(clippy::cast_sign_loss)]
-                let elapsed = (now - last_time).num_seconds() as u64;
-                if elapsed < rule.cooldown_secs {
+            if let Some(&last_time) = last_triggered_snapshot.get(&rule.id) {
+                let elapsed_secs = (now - last_time).num_seconds();
+                if elapsed_secs < 0 || (elapsed_secs as u64) < rule.cooldown_secs {
                     continue;
                 }
             }
@@ -362,8 +386,7 @@ impl AuditPolicyEngine for InMemoryAuditPolicyEngine {
                     min_count,
                 } => {
                     if let Some(ref sink) = self.sink {
-                        #[allow(clippy::cast_possible_wrap)]
-                        let window_secs_i64 = *window_secs as i64;
+                        let window_secs_i64 = i64::try_from(*window_secs).unwrap_or(i64::MAX);
                         let since = now - chrono::Duration::seconds(window_secs_i64);
                         let filter = AuditFilter {
                             subject_id: Some(entry.subject_id.clone()),
@@ -371,9 +394,8 @@ impl AuditPolicyEngine for InMemoryAuditPolicyEngine {
                             since: Some(since),
                             ..Default::default()
                         };
-                        #[allow(clippy::cast_possible_truncation)]
-                        let count = sink.query(&filter).await.len() as u32;
-                        count >= *min_count
+                        let query_len = sink.count(&filter).await as usize;
+                        query_len >= (*min_count as usize)
                     } else {
                         false
                     }
@@ -382,7 +404,7 @@ impl AuditPolicyEngine for InMemoryAuditPolicyEngine {
             };
 
             if matched {
-                last_triggered.insert(rule.id.clone(), now);
+                last_triggered_snapshot.insert(rule.id.clone(), now);
                 alerts.push(AuditAlert {
                     rule_id: rule.id.clone(),
                     rule_name: rule.name.clone(),
@@ -390,6 +412,13 @@ impl AuditPolicyEngine for InMemoryAuditPolicyEngine {
                     triggering_entry: Box::new(entry.clone()),
                     created_at: now,
                 });
+            }
+        }
+
+        {
+            let mut last_triggered = self.last_triggered.write().await;
+            for (id, time) in &last_triggered_snapshot {
+                last_triggered.insert(id.clone(), *time);
             }
         }
 
@@ -401,9 +430,11 @@ impl AuditPolicyEngine for InMemoryAuditPolicyEngine {
         rules.push(rule);
     }
 
-    async fn remove_rule(&self, rule_id: &str) {
+    async fn remove_rule(&self, rule_id: &str) -> Result<bool> {
         let mut rules = self.rules.write().await;
+        let before = rules.len();
         rules.retain(|r| r.id != rule_id);
+        Ok(rules.len() < before)
     }
 
     async fn list_rules(&self) -> Vec<AuditRule> {
@@ -527,34 +558,44 @@ impl AuditLogger {
         hooks.push(Box::new(hook));
     }
 
+    #[must_use]
     pub async fn log(&self, entry: AuditEntry) -> Vec<AuditAlert> {
-        let mut alerts = Vec::new();
+        self.sink.append(entry.clone()).await;
 
+        let mut alerts = Vec::new();
         if let Some(ref engine) = self.policy_engine {
             let fired = engine.evaluate(&entry).await;
             if !fired.is_empty() {
                 let hooks = self.alert_hooks.read().await;
                 for alert in &fired {
                     for hook in hooks.iter() {
-                        hook(alert.clone());
+                        if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            hook(alert.clone());
+                        }))
+                        .is_err()
+                        {
+                            tracing::error!(target: "kirino::audit", "alert hook panicked for rule '{}'", alert.rule_name);
+                        }
                     }
                 }
                 alerts = fired;
             }
         }
 
-        self.sink.append(entry).await;
         alerts
     }
 
+    #[must_use]
     pub async fn query(&self, filter: &AuditFilter) -> Vec<AuditEntry> {
         self.sink.query(filter).await
     }
 
+    #[must_use]
     pub async fn count(&self, filter: &AuditFilter) -> u64 {
         self.sink.count(filter).await
     }
 
+    #[must_use]
     pub async fn analyze_recent(&self, filter: &AuditFilter) -> Option<AuditAnalysisResult> {
         let analyzer = self.analyzer.as_ref()?;
         let entries = self.sink.query(filter).await;
@@ -791,7 +832,7 @@ mod tests {
         let result = analyzer.analyze(&entries).await;
         assert_eq!(result.total_entries, 5);
         assert_eq!(result.denied_count, 3);
-        assert!((result.denied_rate - 0.6).abs() < f64::EPSILON);
+        assert!((result.denied_rate - 0.6).abs() < 1e-10);
         assert_eq!(result.high_risk_count, 3);
 
         let u1 = result.by_subject.get("u1").unwrap();
@@ -801,7 +842,7 @@ mod tests {
         let u2 = result.by_subject.get("u2").unwrap();
         assert_eq!(u2.total, 3);
         assert_eq!(u2.denied, 2);
-        assert!((u2.max_risk - 0.9).abs() < f64::EPSILON);
+        assert!((u2.max_risk - 0.9).abs() < 1e-10);
 
         assert_eq!(result.top_risk_entries.len(), 5);
         let top_risk = result.top_risk_entries[0]
@@ -809,7 +850,7 @@ mod tests {
             .as_ref()
             .unwrap()
             .risk_score;
-        assert!((top_risk - 0.9).abs() < f64::EPSILON);
+        assert!((top_risk - 0.9).abs() < 1e-10);
     }
 
     #[tokio::test]
@@ -818,9 +859,9 @@ mod tests {
             .with_policy_engine(InMemoryAuditPolicyEngine::new())
             .with_analyzer(DefaultAuditAnalyzer::new());
 
-        logger.log(make_entry("u1", "read", true, 0.1)).await;
-        logger.log(make_entry("u1", "write", false, 0.8)).await;
-        logger.log(make_entry("u2", "delete", false, 0.9)).await;
+        let _ = logger.log(make_entry("u1", "read", true, 0.1)).await;
+        let _ = logger.log(make_entry("u1", "write", false, 0.8)).await;
+        let _ = logger.log(make_entry("u2", "delete", false, 0.9)).await;
 
         let all = logger.query(&AuditFilter::default()).await;
         assert_eq!(all.len(), 3);
@@ -862,8 +903,8 @@ mod tests {
             })
             .await;
 
-        logger.log(make_entry("u1", "read", true, 0.1)).await;
-        logger.log(make_entry("u1", "write", false, 0.8)).await;
+        let _ = logger.log(make_entry("u1", "read", true, 0.1)).await;
+        let _ = logger.log(make_entry("u1", "write", false, 0.8)).await;
 
         assert_eq!(counter.load(Ordering::SeqCst), 1);
     }
@@ -886,7 +927,7 @@ mod tests {
             .await;
 
         assert_eq!(engine.list_rules().await.len(), 1);
-        engine.remove_rule("r1").await;
+        assert!(engine.remove_rule("r1").await.unwrap());
         assert!(engine.list_rules().await.is_empty());
     }
 
@@ -957,5 +998,113 @@ mod tests {
         let entry = make_entry("u1", "write", false, 0.8);
         let alerts = engine.evaluate(&entry).await;
         assert!(alerts.is_empty());
+    }
+
+    #[test]
+    fn test_category_sensitive_condition() {
+        let cond = AuditCondition::CategorySensitive { min_weight: 0.4 };
+        let entry = make_entry("u1", "write", true, 0.3);
+        assert!(cond.evaluate(&entry));
+
+        let entry_low = {
+            let mut e = make_entry("u1", "write", true, 0.3);
+            if let Some(ref mut v) = e.verdict {
+                v.sub_scores.sensitivity = 0.1;
+            }
+            e
+        };
+        assert!(!cond.evaluate(&entry_low));
+    }
+
+    #[test]
+    fn test_domain_mismatch_condition() {
+        let cond = AuditCondition::DomainMismatch { min_weight: 0.3 };
+        let entry = {
+            let mut e = make_entry("u1", "write", true, 0.3);
+            if let Some(ref mut v) = e.verdict {
+                v.sub_scores.domain_mismatch = 0.5;
+            }
+            e
+        };
+        assert!(cond.evaluate(&entry));
+
+        let entry_low = make_entry("u1", "write", true, 0.3);
+        assert!(!cond.evaluate(&entry_low));
+    }
+
+    #[test]
+    fn test_composite_any_operator() {
+        let cond = AuditCondition::Composite {
+            conditions: vec![
+                AuditCondition::Denied,
+                AuditCondition::HighRisk { threshold: 0.9 },
+            ],
+            operator: LogicalOp::Any,
+        };
+
+        let denied_entry = make_entry("u1", "write", false, 0.1);
+        assert!(cond.evaluate(&denied_entry));
+
+        let high_risk_entry = make_entry("u1", "write", true, 0.95);
+        assert!(cond.evaluate(&high_risk_entry));
+
+        let normal_entry = make_entry("u1", "write", true, 0.1);
+        assert!(!cond.evaluate(&normal_entry));
+    }
+
+    #[test]
+    fn test_disabled_rule_not_evaluated() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .unwrap();
+        rt.block_on(async {
+            let engine = InMemoryAuditPolicyEngine::new();
+            engine
+                .add_rule(AuditRule {
+                    id: "disabled-rule".to_string(),
+                    name: "should-not-fire".to_string(),
+                    enabled: false,
+                    condition: AuditCondition::Denied,
+                    action: AuditAction::Alert {
+                        message: "should not fire".to_string(),
+                        severity: AuditSeverity::Warning,
+                    },
+                    cooldown_secs: 0,
+                })
+                .await;
+
+            let entry = make_entry("u1", "write", false, 0.5);
+            let alerts = engine.evaluate(&entry).await;
+            assert!(alerts.is_empty());
+        });
+    }
+
+    #[test]
+    fn test_entry_without_verdict() {
+        let entry = AuditEntry {
+            id: 1,
+            subject_id: "u1".to_string(),
+            subject_type: "user".to_string(),
+            permission: "read".to_string(),
+            endpoint: "/test".to_string(),
+            granted: false,
+            created_at: Utc::now(),
+            verdict: None,
+        };
+
+        let cond = AuditCondition::HighRisk { threshold: 0.5 };
+        assert!(!cond.evaluate(&entry));
+
+        let cond = AuditCondition::CategorySensitive { min_weight: 0.1 };
+        assert!(!cond.evaluate(&entry));
+
+        let cond = AuditCondition::DomainMismatch { min_weight: 0.1 };
+        assert!(!cond.evaluate(&entry));
+
+        let cond = AuditCondition::TrustBelow { threshold: 0.5 };
+        assert!(!cond.evaluate(&entry));
+
+        assert!(AuditCondition::Denied.evaluate(&entry));
     }
 }

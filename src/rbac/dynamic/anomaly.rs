@@ -33,6 +33,7 @@ pub struct AnomalyDetector {
     pub category_profile: HashMap<ActionCategory, f64>,
     pub baseline: Option<BehaviorBaseline>,
     total_observed: u64,
+    history: VecDeque<ActionRecord>,
 }
 
 impl AnomalyDetector {
@@ -44,6 +45,7 @@ impl AnomalyDetector {
             category_profile: HashMap::new(),
             baseline: None,
             total_observed: 0,
+            history: VecDeque::with_capacity(BASELINE_MIN_SAMPLES),
         }
     }
 
@@ -63,6 +65,7 @@ impl AnomalyDetector {
         self.total_observed
     }
 
+    #[must_use]
     pub fn observe(&mut self, request: &ActionRequest) -> AnomalyScore {
         self.total_observed += 1;
 
@@ -75,13 +78,24 @@ impl AnomalyDetector {
         if self.recent_actions.len() >= self.window_size {
             self.recent_actions.pop_front();
         }
-        self.recent_actions.push_back(record);
+        self.recent_actions.push_back(record.clone());
+
+        // Collect all observations until baseline is built
+        if self.baseline.is_none() && self.history.len() < BASELINE_MIN_SAMPLES {
+            self.history.push_back(record);
+        }
 
         self.recompute_profile();
 
+        if self.is_baseline_ready() && self.baseline.is_none() {
+            self.build_baseline_from_history();
+            self.history.clear(); // no longer needed
+            self.history.shrink_to_fit();
+        }
+
         if !self.is_baseline_ready() {
             return AnomalyScore {
-                value: 0.0,
+                value: 0.1,
                 reason: "insufficient-samples".to_string(),
             };
         }
@@ -120,7 +134,7 @@ impl AnomalyDetector {
             let stdev = baseline.category_stdevs.get(cat).copied().unwrap_or(0.1);
             let z_score = if stdev > 0.0 {
                 (current_freq - mean) / stdev
-            } else if (current_freq - mean).abs() < f64::EPSILON {
+            } else if (current_freq - mean).abs() < 1e-12 {
                 0.0
             } else {
                 2.0
@@ -150,13 +164,13 @@ impl AnomalyDetector {
             return;
         }
 
-        let n = self.recent_actions.len() as f64;
+        let n = self.history.len() as f64;
         if n == 0.0 {
             return;
         }
 
         let mut counts: HashMap<ActionCategory, f64> = HashMap::new();
-        for rec in &self.recent_actions {
+        for rec in &self.history {
             *counts.entry(rec.category).or_insert(0.0) += 1.0;
         }
 
@@ -164,16 +178,15 @@ impl AnomalyDetector {
             counts.iter().map(|(&k, &c)| (k, c / n)).collect();
 
         let mut category_stdevs: HashMap<ActionCategory, f64> = HashMap::new();
-        for rec in &self.recent_actions {
-            if let Some(&mean) = category_means.get(&rec.category) {
-                let diff = 1.0 - mean;
-                *category_stdevs.entry(rec.category).or_insert(0.0) += diff * diff;
-            }
-        }
-        for (cat, sum_sq) in &mut category_stdevs {
-            let mean = category_means.get(cat).copied().unwrap_or(0.0);
-            let variance = mean * (1.0 - mean) / n.max(1.0);
-            *sum_sq = (variance + *sum_sq / n).sqrt().max(0.01);
+        for (&cat, &count) in &counts {
+            let p = count / n;
+            let sample_var = if n > 1.0 {
+                // Correct Bernoulli sample variance: p(1-p) * n / (n-1)
+                p * (1.0 - p) * n / (n - 1.0)
+            } else {
+                p * (1.0 - p)
+            };
+            category_stdevs.insert(cat, sample_var.sqrt().max(0.01));
         }
 
         self.baseline = Some(BehaviorBaseline {
@@ -221,7 +234,7 @@ mod tests {
     fn test_observe_insufficient_samples() {
         let mut det = AnomalyDetector::new(20);
         let score = det.observe(&make_request(ActionCategory::ReadOnly));
-        assert_eq!(score.value, 0.0);
+        assert_eq!(score.value, 0.1);
         assert_eq!(score.reason, "insufficient-samples");
     }
 
@@ -256,7 +269,7 @@ mod tests {
         det.total_observed = 200;
 
         for _ in 0..20 {
-            det.observe(&make_request(ActionCategory::ProcessExec));
+            let _ = det.observe(&make_request(ActionCategory::ProcessExec));
         }
 
         let dev = det.pattern_deviation();
@@ -268,7 +281,7 @@ mod tests {
         let mut det = AnomalyDetector::new(5);
         det.total_observed = 200;
         for _ in 0..10 {
-            det.observe(&make_request(ActionCategory::ReadOnly));
+            let _ = det.observe(&make_request(ActionCategory::ReadOnly));
         }
         assert_eq!(det.recent_actions.len(), 5);
     }
@@ -276,15 +289,18 @@ mod tests {
     #[test]
     fn test_build_baseline_from_history() {
         let mut det = AnomalyDetector::new(200);
-        det.total_observed = 200;
-        for _ in 0..150 {
-            det.observe(&make_request(ActionCategory::ReadOnly));
-        }
-        for _ in 0..50 {
-            det.observe(&make_request(ActionCategory::FileWrite));
+
+        // Fill first 100 observations with mixed categories so auto-build
+        // at 100 uses a representative baseline from the dedicated history buffer.
+        for i in 0..BASELINE_MIN_SAMPLES {
+            if i < 75 {
+                let _ = det.observe(&make_request(ActionCategory::ReadOnly));
+            } else {
+                let _ = det.observe(&make_request(ActionCategory::FileWrite));
+            }
         }
 
-        det.build_baseline_from_history();
+        // Baseline should have been auto-built at the 100th observation
         let baseline = det.baseline.as_ref().unwrap();
 
         let ro_mean = baseline
@@ -307,13 +323,49 @@ mod tests {
             .copied()
             .unwrap_or(0.0);
         assert!(ro_stdev > 0.0);
+
+        // Verify history was cleared after baseline build
+        assert!(
+            det.history.is_empty(),
+            "history should be cleared after baseline build"
+        );
+    }
+
+    #[test]
+    fn test_baseline_auto_builds_after_min_samples() {
+        let mut det = AnomalyDetector::new(100);
+        assert!(det.baseline.is_none());
+
+        for _ in 0..BASELINE_MIN_SAMPLES {
+            let _ = det.observe(&make_request(ActionCategory::ReadOnly));
+        }
+
+        assert!(det.baseline.is_some());
+        assert!(det.is_baseline_ready());
+    }
+
+    #[test]
+    fn test_anomaly_detection_works_after_baseline_ready() {
+        let mut det = AnomalyDetector::new(100);
+
+        for _ in 0..BASELINE_MIN_SAMPLES {
+            let _ = det.observe(&make_request(ActionCategory::ReadOnly));
+        }
+
+        let score = det.observe(&make_request(ActionCategory::ProcessExec));
+        assert!(
+            score.value > 0.0,
+            "anomaly value should be >0 after baseline ready, got {}",
+            score.value
+        );
+        assert_ne!(score.reason, "insufficient-samples");
     }
 
     #[test]
     fn test_build_baseline_insufficient_samples() {
         let mut det = AnomalyDetector::new(20);
         for _ in 0..50 {
-            det.observe(&make_request(ActionCategory::ReadOnly));
+            let _ = det.observe(&make_request(ActionCategory::ReadOnly));
         }
         assert!(!det.is_baseline_ready());
         det.build_baseline_from_history();
