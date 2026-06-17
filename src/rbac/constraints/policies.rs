@@ -1,57 +1,41 @@
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SsdPolicy {
-    pub name: String,
-    pub roles: HashSet<String>,
-    pub cardinality: usize,
-}
-
-impl SsdPolicy {
-    pub fn new(name: impl Into<String>, roles: HashSet<String>, cardinality: usize) -> Self {
-        Self {
-            name: name.into(),
-            roles,
-            cardinality,
+macro_rules! define_sod_policy {
+    ($name:ident) => {
+        #[derive(Debug, Clone, Serialize, Deserialize)]
+        pub struct $name {
+            pub name: String,
+            pub roles: HashSet<String>,
+            pub cardinality: usize,
         }
-    }
 
-    #[must_use]
-    pub fn validate(&self, assigned_roles: &[String]) -> bool {
-        let count = assigned_roles
-            .iter()
-            .filter(|r| self.roles.contains(*r))
-            .count();
-        count < self.cardinality
-    }
-}
+        impl $name {
+            #[must_use]
+            pub fn new(
+                name: impl Into<String>,
+                roles: HashSet<String>,
+                cardinality: usize,
+            ) -> Self {
+                Self {
+                    name: name.into(),
+                    roles,
+                    cardinality: cardinality.max(1),
+                }
+            }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DsdPolicy {
-    pub name: String,
-    pub roles: HashSet<String>,
-    pub cardinality: usize,
-}
-
-impl DsdPolicy {
-    pub fn new(name: impl Into<String>, roles: HashSet<String>, cardinality: usize) -> Self {
-        Self {
-            name: name.into(),
-            roles,
-            cardinality,
+            #[must_use]
+            pub fn validate(&self, roles: &[String]) -> bool {
+                let count = roles.iter().filter(|r| self.roles.contains(*r)).count();
+                count < self.cardinality
+            }
         }
-    }
-
-    #[must_use]
-    pub fn validate(&self, active_roles: &[String]) -> bool {
-        let count = active_roles
-            .iter()
-            .filter(|r| self.roles.contains(*r))
-            .count();
-        count < self.cardinality
-    }
+    };
 }
+
+define_sod_policy!(SsdPolicy);
+define_sod_policy!(DsdPolicy);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CardinalityConstraint {
@@ -60,10 +44,11 @@ pub struct CardinalityConstraint {
 }
 
 impl CardinalityConstraint {
+    #[must_use]
     pub fn new(role_name: impl Into<String>, max_subjects: usize) -> Self {
         Self {
             role_name: role_name.into(),
-            max_subjects,
+            max_subjects: max_subjects.max(1),
         }
     }
 
@@ -80,6 +65,7 @@ pub struct PrerequisiteConstraint {
 }
 
 impl PrerequisiteConstraint {
+    #[must_use]
     pub fn new(role_name: impl Into<String>, requires: impl Into<String>) -> Self {
         Self {
             role_name: role_name.into(),
@@ -105,12 +91,19 @@ impl TemporalConstraint {
         role_name: impl Into<String>,
         valid_from: chrono::DateTime<chrono::Utc>,
         valid_until: chrono::DateTime<chrono::Utc>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self> {
+        if valid_from >= valid_until {
+            return Err(crate::error::KirinoError::Validation(format!(
+                "TemporalConstraint: valid_from ({}) must be before valid_until ({})",
+                valid_from, valid_until
+            ))
+            .into());
+        }
+        Ok(Self {
             role_name: role_name.into(),
             valid_from,
             valid_until,
-        }
+        })
     }
 
     #[must_use]
@@ -178,14 +171,27 @@ mod tests {
             "temp_role",
             now - chrono::Duration::hours(1),
             now + chrono::Duration::hours(1),
-        );
+        )
+        .unwrap();
         assert!(valid.is_valid());
 
         let expired = TemporalConstraint::new(
             "temp_role",
             now - chrono::Duration::hours(2),
             now - chrono::Duration::hours(1),
-        );
+        )
+        .unwrap();
         assert!(!expired.is_valid());
+    }
+
+    #[test]
+    fn test_temporal_constraint_inverted_dates_rejected() {
+        let now = chrono::Utc::now();
+        let result = TemporalConstraint::new(
+            "temp_role",
+            now + chrono::Duration::hours(1),
+            now - chrono::Duration::hours(1),
+        );
+        assert!(result.is_err());
     }
 }

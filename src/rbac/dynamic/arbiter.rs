@@ -10,7 +10,7 @@ use super::{
     domain::DomainScope,
     metrics::ActionRequest,
     policy::DynamicPolicy,
-    trust::{TrustScore, TrustScoreStore},
+    trust::{TrustDecayHandle, TrustDecayWorker, TrustScore, TrustScoreStore},
     verdict::{ActionOutcome, AuthorizationVerdict, AutonomyLevel, RiskScore, Strategy, SubScores},
 };
 use crate::rbac::{
@@ -18,10 +18,17 @@ use crate::rbac::{
     shared::Shared,
 };
 
+const MAX_ANOMALY_DETECTORS: usize = 10_000;
+
+const DEFAULT_ANOMALY_SCORE_WHEN_AT_CAPACITY: f64 = 0.15;
+
+const LOCKDOWN_EVIDENCE_COUNT: u64 = 999;
+
 #[derive(Clone)]
 pub struct AuthorizationArbiter {
     trust_store: Shared<dyn TrustScoreStore>,
     detectors: Arc<RwLock<HashMap<String, AnomalyDetector>>>,
+    max_detectors: usize,
     domain_scope: Arc<RwLock<Option<DomainScope>>>,
     policy: Arc<RwLock<DynamicPolicy>>,
     frozen: Arc<RwLock<HashSet<String>>>,
@@ -49,15 +56,37 @@ impl std::fmt::Debug for AuthorizationArbiter {
 }
 
 impl AuthorizationArbiter {
+    /// Creates a new `AuthorizationArbiter`.
+    ///
+    /// # Internal lock ordering
+    ///
+    /// Methods acquire internal locks in a consistent order to prevent deadlocks:
+    /// 1. `frozen` (read or write)
+    /// 2. `policy` (read)
+    /// 3. `domain_scope` (read)
+    /// 4. `detectors` (write)
+    /// 5. `trust_store` (via async trait methods, external locking)
+    ///
+    /// Do **not** acquire these locks in a different order in any new method.
+    #[must_use]
     pub fn new(trust_store: impl TrustScoreStore + 'static, policy: DynamicPolicy) -> Self {
         Self {
             trust_store: Shared::from_arc_unsized(Arc::new(trust_store)),
             detectors: Arc::new(RwLock::new(HashMap::new())),
+            max_detectors: MAX_ANOMALY_DETECTORS,
             domain_scope: Arc::new(RwLock::new(None)),
             policy: Arc::new(RwLock::new(policy)),
             frozen: Arc::new(RwLock::new(HashSet::new())),
             audit: None,
         }
+    }
+
+    /// Sets the maximum number of anomaly detectors.
+    /// When exceeded, new delegators will use a default anomaly score.
+    #[must_use]
+    pub fn with_max_detectors(mut self, max: usize) -> Self {
+        self.max_detectors = max;
+        self
     }
 
     #[must_use]
@@ -77,43 +106,16 @@ impl AuthorizationArbiter {
         &self.trust_store
     }
 
-    #[must_use]
-    pub fn spawn_trust_decay(&self, interval: std::time::Duration) -> tokio::task::JoinHandle<()> {
-        let store = self.trust_store.clone();
-        tokio::spawn(async move {
-            let mut tick = tokio::time::interval(interval);
-            loop {
-                tick.tick().await;
-                let ids = match store.list_ids().await {
-                    Ok(ids) => ids,
-                    Err(e) => {
-                        tracing::error!(target: "kirino::dynamic::trust::decay",
-                            error = %e,
-                            "failed to list trust score ids"
-                        );
-                        continue;
-                    }
-                };
-                let mut decayed = 0;
-                for id in &ids {
-                    if let Ok(Some(mut score)) = store.get(id).await {
-                        score.degrade(interval);
-                        if let Ok(()) = store.set(id, score).await {
-                            decayed += 1;
-                        }
-                    }
-                }
-                tracing::debug!(target: "kirino::dynamic::trust::decay",
-                    decayed_count = decayed,
-                    "trust decay cycle completed"
-                );
-            }
-        })
+    pub fn spawn_trust_decay(&self, interval: std::time::Duration) -> TrustDecayHandle {
+        let store = self.trust_store.clone_arc();
+        TrustDecayWorker::spawn_resilient(store, interval)
     }
 
-    pub async fn set_policy(&self, policy: DynamicPolicy) {
+    pub async fn set_policy(&self, policy: DynamicPolicy) -> anyhow::Result<()> {
+        policy.validate()?;
         let mut guard = self.policy.write().await;
         *guard = policy;
+        Ok(())
     }
 
     pub async fn set_domain_scope(&self, scope: DomainScope) {
@@ -121,6 +123,7 @@ impl AuthorizationArbiter {
         *guard = Some(scope);
     }
 
+    #[must_use]
     pub async fn authorize(&self, request: &ActionRequest) -> AuthorizationVerdict {
         let frozen = self.frozen.read().await;
         if frozen.contains(&request.delegator.id) {
@@ -151,30 +154,6 @@ impl AuthorizationArbiter {
         drop(frozen);
 
         let risk = self.risk_score(request).await;
-
-        let mut risk = risk;
-        {
-            let scope_guard = self.domain_scope.read().await;
-            if let Some(scope) = scope_guard.as_ref() {
-                let floor = scope.current_task_domain.trust_floor;
-                if floor > 0.0 {
-                    let trust = self
-                        .trust_store
-                        .get(&request.delegator.id)
-                        .await
-                        .ok()
-                        .flatten()
-                        .unwrap_or_default();
-                    let weighted = trust.weighted();
-                    if weighted < floor {
-                        let penalty = (floor - weighted).clamp(0.0, 1.0);
-                        risk.value = (risk.value + penalty).min(1.0);
-                        risk.sub_scores.domain_mismatch += penalty;
-                    }
-                }
-            }
-        }
-
         let policy = self.policy.read().await;
         let level = policy.map_to_level(risk.value);
         let strategy = policy.strategy_for(level);
@@ -223,6 +202,7 @@ impl AuthorizationArbiter {
         verdict
     }
 
+    #[must_use]
     pub async fn risk_score(&self, request: &ActionRequest) -> RiskScore {
         let policy = self.policy.read().await;
 
@@ -234,47 +214,78 @@ impl AuthorizationArbiter {
             DelegatorType::Scheduler => 0.02,
         };
 
-        let trust = self
-            .trust_store
-            .get(&request.delegator.id)
-            .await
-            .ok()
-            .flatten()
-            .unwrap_or_default();
-        let trust_penalty = (1.0 - trust.weighted()).clamp(0.0, 1.0);
+        let trust = match self.trust_store.get(&request.delegator.id).await {
+            Ok(Some(score)) => score,
+            Ok(None) => TrustScore::default(),
+            Err(e) => {
+                tracing::warn!(target: "kirino::dynamic::arbiter",
+                    delegator_id = %request.delegator.id,
+                    error = %e,
+                    "trust store unavailable, using conservative trust penalty"
+                );
+                TrustScore {
+                    value: 0.0,
+                    confidence: 1.0,
+                    ..TrustScore::default()
+                }
+            }
+        };
+        let mut trust_penalty = (1.0 - trust.weighted()).clamp(0.0, 1.0);
 
         let sensitivity = request.category.base_weight();
 
         let domain_mismatch = {
             let scope_guard = self.domain_scope.read().await;
             match scope_guard.as_ref() {
-                Some(scope) => scope
-                    .evaluate(&request.category, request.resource_path.as_deref())
-                    .excess_weight(),
+                Some(scope) => {
+                    let mism = scope
+                        .evaluate(&request.category, request.resource_path.as_deref())
+                        .excess_weight();
+
+                    let floor = scope.current_task_domain.trust_floor;
+                    if floor > 0.0 {
+                        let weighted = trust.weighted();
+                        if weighted < floor {
+                            let penalty = (floor - weighted).clamp(0.0, 1.0);
+                            trust_penalty = (trust_penalty + penalty).min(1.0);
+                        }
+                    }
+
+                    mism
+                }
                 None => 0.0,
             }
         };
 
         let anomaly = {
             let mut detectors = self.detectors.write().await;
-            let detector = detectors
-                .entry(request.delegator.id.clone())
-                .or_insert_with(AnomalyDetector::default);
-            let score = detector.observe(request);
-            score.value
-        };
-
-        let anomaly_weight_modifier = if self.is_baseline_ready_for(&request.delegator.id).await {
-            1.0
-        } else {
-            0.5
+            let detector = if detectors.len() >= self.max_detectors
+                && !detectors.contains_key(&request.delegator.id)
+            {
+                tracing::warn!(target: "kirino::dynamic::arbiter",
+                    delegator_id = %request.delegator.id,
+                    max = self.max_detectors,
+                    "anomaly detector limit reached, using default score"
+                );
+                None
+            } else {
+                Some(
+                    detectors
+                        .entry(request.delegator.id.clone())
+                        .or_insert_with(AnomalyDetector::default),
+                )
+            };
+            match detector {
+                Some(d) => d.observe(request).value,
+                None => DEFAULT_ANOMALY_SCORE_WHEN_AT_CAPACITY,
+            }
         };
 
         let raw = delegator_weight * policy.dimension_weights[0]
             + trust_penalty * policy.dimension_weights[1]
             + sensitivity * policy.dimension_weights[2]
             + domain_mismatch * policy.dimension_weights[3]
-            + anomaly * anomaly_weight_modifier * policy.dimension_weights[4];
+            + anomaly * policy.dimension_weights[4];
 
         let value = raw.clamp(0.0, 1.0);
 
@@ -295,6 +306,7 @@ impl AuthorizationArbiter {
             .trust_store
             .get(&request.delegator.id)
             .await
+            .map_err(|e| tracing::warn!("trust store get failed (feedback): {e}"))
             .ok()
             .flatten()
             .unwrap_or_default();
@@ -314,7 +326,13 @@ impl AuthorizationArbiter {
             }
         }
 
-        let _ = self.trust_store.set(&request.delegator.id, trust).await;
+        if let Err(e) = self.trust_store.set(&request.delegator.id, trust).await {
+            tracing::error!(target: "kirino::dynamic::arbiter",
+                delegator_id = %request.delegator.id,
+                error = %e,
+                "failed to persist trust score after feedback"
+            );
+        }
     }
 
     pub async fn lockdown(&self, delegator_id: &str, reason: &str) {
@@ -325,8 +343,14 @@ impl AuthorizationArbiter {
 
         let mut trust = TrustScore::new(0.0);
         trust.confidence = 1.0;
-        trust.evidence_count = 999;
-        let _ = self.trust_store.set(delegator_id, trust).await;
+        trust.evidence_count = LOCKDOWN_EVIDENCE_COUNT;
+        if let Err(e) = self.trust_store.set(delegator_id, trust).await {
+            tracing::error!(target: "kirino::dynamic::arbiter",
+                delegator_id = delegator_id,
+                error = %e,
+                "failed to persist lockdown trust score"
+            );
+        }
 
         tracing::warn!(target: "kirino::dynamic::arbiter",
             delegator_id = delegator_id,
@@ -350,8 +374,15 @@ impl AuthorizationArbiter {
         };
 
         let mut trust = TrustScore::new(target_trust);
-        trust.confidence = 0.5;
-        let _ = self.trust_store.set(delegator_id, trust).await;
+        trust.confidence = 0.8;
+        trust.evidence_count = 10;
+        if let Err(e) = self.trust_store.set(delegator_id, trust).await {
+            tracing::error!(target: "kirino::dynamic::arbiter",
+                delegator_id = delegator_id,
+                error = %e,
+                "failed to persist restored trust score"
+            );
+        }
 
         let mut detectors = self.detectors.write().await;
         detectors.remove(delegator_id);
@@ -363,14 +394,20 @@ impl AuthorizationArbiter {
         );
     }
 
+    #[must_use]
     pub async fn status_summary(&self, delegator_id: &str) -> serde_json::Value {
-        let trust = self
-            .trust_store
-            .get(delegator_id)
-            .await
-            .ok()
-            .flatten()
-            .unwrap_or_default();
+        let (trust, store_ok) = match self.trust_store.get(delegator_id).await {
+            Ok(Some(score)) => (score, true),
+            Ok(None) => (TrustScore::default(), true),
+            Err(e) => {
+                tracing::warn!(target: "kirino::dynamic::arbiter",
+                    delegator_id = delegator_id,
+                    error = %e,
+                    "trust store unavailable for status summary"
+                );
+                (TrustScore::default(), false)
+            }
+        };
         let frozen = self.frozen.read().await.contains(delegator_id);
         let detectors = self.detectors.read().await;
         let anomaly_ready = detectors
@@ -380,18 +417,12 @@ impl AuthorizationArbiter {
             "enabled": true,
             "delegator_id": delegator_id,
             "frozen": frozen,
+            "trust_store_ok": store_ok,
             "trust_score": trust.weighted(),
             "trust_confidence": trust.confidence,
             "trust_evidence_count": trust.evidence_count,
             "anomaly_baseline_ready": anomaly_ready,
         })
-    }
-
-    async fn is_baseline_ready_for(&self, delegator_id: &str) -> bool {
-        let detectors = self.detectors.read().await;
-        detectors
-            .get(delegator_id)
-            .is_some_and(super::anomaly::AnomalyDetector::is_baseline_ready)
     }
 
     async fn log_verdict(&self, verdict: &AuthorizationVerdict, request: &ActionRequest) {
@@ -418,10 +449,16 @@ impl AuthorizationArbiter {
                         anomaly: verdict.sub_scores.anomaly,
                     },
                     evidence: verdict.evidence.clone(),
-                    mitigation: verdict.mitigation.as_ref().map(|s| format!("{s:?}")),
+                    mitigation: verdict.mitigation.as_ref().map(|s| s.to_string()),
                 }),
             };
-            audit.log(entry).await;
+            let alerts = audit.log(entry).await;
+            if !alerts.is_empty() {
+                tracing::debug!(target: "kirino::dynamic::arbiter",
+                    alert_count = alerts.len(),
+                    "audit alerts fired for dynamic authorization verdict"
+                );
+            }
         }
     }
 }
@@ -480,10 +517,11 @@ mod tests {
         let req = agent_request(ActionCategory::FileWrite);
         let risk = arbiter.risk_score(&req).await;
 
-        assert!((risk.sub_scores.delegator_weight - 0.05).abs() < f64::EPSILON);
+        assert!((risk.sub_scores.delegator_weight - 0.05).abs() < 1e-10);
+
         assert!(risk.sub_scores.trust_penalty > 0.0);
-        assert!((risk.sub_scores.sensitivity - 0.5).abs() < f64::EPSILON);
-        assert!((risk.sub_scores.domain_mismatch).abs() < f64::EPSILON);
+        assert!((risk.sub_scores.sensitivity - 0.5).abs() < 1e-10);
+        assert!((risk.sub_scores.domain_mismatch).abs() < 1e-10);
     }
 
     #[tokio::test]
@@ -598,7 +636,15 @@ mod tests {
 
         let req = human_request(ActionCategory::ReadOnly);
         let verdict = arbiter.authorize(&req).await;
-        assert!(verdict.evidence.is_empty() || !verdict.evidence.is_empty());
+        assert!(
+            !verdict.evidence.is_empty(),
+            "evidence should be populated after authorize"
+        );
+        assert!(
+            verdict.evidence[0].contains("risk="),
+            "evidence should contain risk info"
+        );
+        assert!(verdict.timestamp.timestamp() > 0, "timestamp should be set");
     }
 
     #[tokio::test]
@@ -618,7 +664,7 @@ mod tests {
                 reason: "lockdown".to_string(),
             },
         )]);
-        arbiter.set_policy(strict_policy).await;
+        arbiter.set_policy(strict_policy).await.unwrap();
 
         let v2 = arbiter.authorize(&req).await;
         assert!(!v2.allowed);

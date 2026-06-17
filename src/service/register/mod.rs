@@ -1,12 +1,10 @@
-#[cfg(test)]
+#[cfg(all(test, feature = "auth-password", feature = "auth-jwt"))]
 mod tests {
 
     use crate::{
-        database::sql::InMemoryUserDatabase,
+        database::memory::InMemoryUserDatabase,
         rbac::{
-            store::{memory::InMemoryAssignmentStore, registry::SimpleRole},
-            subject::StringSubject,
-            traits::AssignmentStore,
+            store::memory::InMemoryAssignmentStore, subject::StringSubject, traits::AssignmentStore,
         },
         service::login::{build_default_engine, AuthService, KirinoPermission, LoginRateLimiter},
     };
@@ -14,12 +12,19 @@ mod tests {
     fn make_auth() -> AuthService<
         InMemoryUserDatabase,
         KirinoPermission,
-        SimpleRole<KirinoPermission>,
         InMemoryAssignmentStore<StringSubject, KirinoPermission>,
     > {
         let db = InMemoryUserDatabase::new();
         let engine = build_default_engine();
-        AuthService::new(db, "test-secret", 24, engine, "admin", "viewer")
+        AuthService::new(
+            db,
+            "test-secret-that-is-at-least-32-bytes-long",
+            24,
+            engine,
+            "admin",
+            "viewer",
+        )
+        .unwrap()
     }
 
     #[tokio::test]
@@ -45,8 +50,16 @@ mod tests {
     async fn test_first_user_is_admin() {
         let db = InMemoryUserDatabase::new();
         let engine = build_default_engine();
-        let auth = AuthService::new(db, "test-secret", 24, engine, "admin", "viewer")
-            .with_auto_admin_first_user(true);
+        let auth = AuthService::new(
+            db,
+            "test-secret-that-is-at-least-32-bytes-long",
+            24,
+            engine,
+            "admin",
+            "viewer",
+        )
+        .unwrap()
+        .with_auto_admin_first_user(true);
 
         auth.register("admin", "Password123!", None).await.unwrap();
         assert!(
@@ -62,7 +75,15 @@ mod tests {
     async fn test_first_user_is_not_admin_by_default() {
         let db = InMemoryUserDatabase::new();
         let engine = build_default_engine();
-        let auth = AuthService::new(db, "test-secret", 24, engine, "admin", "viewer");
+        let auth = AuthService::new(
+            db,
+            "test-secret-that-is-at-least-32-bytes-long",
+            24,
+            engine,
+            "admin",
+            "viewer",
+        )
+        .unwrap();
 
         auth.register("first", "Password123!", None).await.unwrap();
         assert!(
@@ -229,8 +250,16 @@ mod tests {
     async fn test_login_rate_limiting() {
         let db = InMemoryUserDatabase::new();
         let engine = build_default_engine();
-        let auth = AuthService::new(db, "test-secret", 24, engine, "admin", "viewer")
-            .with_rate_limiter(LoginRateLimiter::new(3, 60, 60));
+        let auth = AuthService::new(
+            db,
+            "test-secret-that-is-at-least-32-bytes-long",
+            24,
+            engine,
+            "admin",
+            "viewer",
+        )
+        .unwrap()
+        .with_rate_limiter(LoginRateLimiter::new(3, 60, 60));
 
         auth.register("alice", "Password123!", None).await.unwrap();
 
@@ -249,8 +278,16 @@ mod tests {
     async fn test_rate_limit_resets_on_success() {
         let db = InMemoryUserDatabase::new();
         let engine = build_default_engine();
-        let auth = AuthService::new(db, "test-secret", 24, engine, "admin", "viewer")
-            .with_rate_limiter(LoginRateLimiter::new(3, 60, 60));
+        let auth = AuthService::new(
+            db,
+            "test-secret-that-is-at-least-32-bytes-long",
+            24,
+            engine,
+            "admin",
+            "viewer",
+        )
+        .unwrap()
+        .with_rate_limiter(LoginRateLimiter::new(3, 60, 60));
 
         auth.register("alice", "Password123!", None).await.unwrap();
 

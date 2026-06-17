@@ -17,10 +17,7 @@
   <a href="https://crates.io/crates/kirino">
     <img src="https://img.shields.io/crates/v/kirino" alt="Crates.io Version" />
   </a>
-  <a href="https://crates.io/crates/kirino">
-    <img src="https://img.shields.io/crates/l/kirino" alt="License" />
-  </a>
-</div>
+  [[![License: SySL](https://img.shields.io/badge/license-SySL%201.0-blue)](./LICENSE.txt)](./LICENSE.txt)</div>
 
 <div align="center">
   <h3>
@@ -74,7 +71,7 @@ Add kirino to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-kirino = "0.3"
+kirino = "0.5"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 ```
@@ -132,7 +129,7 @@ Or use the built-in `AuthService` for a complete setup:
 
 ```rust,no_run
 use kirino::service::login::{AuthService, build_default_engine};
-use kirino::database::sql::InMemoryUserDatabase;
+use kirino::database::memory::InMemoryUserDatabase;
 
 let db = InMemoryUserDatabase::new();
 let engine = build_default_engine();
@@ -191,8 +188,8 @@ graph TD
 
     subgraph DB["Database Layer"]
         MEMORY["InMemory Stores<br/>(zero-dependency ref impl)"]
-        SQL["SQL Backend<br/>(feature: rbac-sql)"]
-        REDIS["Redis Cache<br/>(feature: rbac-redis)"]
+        DYNAMIC["Dynamic Auth<br/>(feature: rbac-dynamic)"]
+        CACHE["Permission Cache<br/>(TTL-based)"]
     end
 
     IDENTITY --> CREDENTIAL --> PASSPORT --> AUTH --> SESSION
@@ -274,8 +271,8 @@ flowchart TD
     REQ --> RISK["Compute 5-dimension risk score"]
     RISK --> D1["Trust (30%)"]
     RISK --> D2["Sensitivity (25%)"]
-    RISK --> D3["Anomaly (25%)"]
-    RISK --> D4["Domain Scope (10%)"]
+    RISK --> D3["Domain Scope (25%)"]
+    RISK --> D4["Anomaly (10%)"]
     RISK --> D5["Delegator Type (10%)"]
     D1 & D2 & D3 & D4 & D5 --> MAP["Map risk → Autonomy Level"]
     MAP --> L0["L0: Lockdown (reject all)"]
@@ -309,18 +306,18 @@ Trust scores decay exponentially over time. Anomaly detection uses sliding-windo
 
 ```toml
 [features]
-default = []                    # RBAC core + in-memory backends
-rbac-core = []                  # Traits and engine only
-rbac-inmemory = ["rbac-core"]   # In-memory assignment/role stores
-rbac-hierarchy = ["rbac-core"]  # RBAC1 hierarchical role inheritance
-rbac-constraints = ["rbac-core"]# RBAC2 constraint models (SSD/DSD)
-rbac-sql = ["rbac-core"]        # SQL-based persistent stores
-rbac-sea-orm = ["rbac-core"]    # SeaORM entity models
-rbac-redis = ["rbac-core"]      # Redis-based permission cache
-rbac-full = [                   # All features enabled
+default = ["rbac-inmemory", "auth-password", "auth-jwt"]
+rbac-core = []                     # Traits and engine only
+rbac-inmemory = ["rbac-core"]      # In-memory assignment/role stores
+rbac-hierarchy = ["rbac-core"]     # RBAC1 hierarchical role inheritance
+rbac-constraints = ["rbac-core"]   # RBAC2 constraint models (SSD/DSD)
+rbac-dynamic = ["rbac-core"]       # Dynamic risk-based authorization
+rbac-full = [                      # All features enabled
     "rbac-inmemory", "rbac-hierarchy", "rbac-constraints",
-    "rbac-sql", "rbac-sea-orm", "rbac-redis"
+    "rbac-dynamic", "auth-password", "auth-jwt"
 ]
+auth-password = ["dep:argon2"]     # Argon2 password hashing
+auth-jwt = ["dep:jsonwebtoken"]    # JWT token issuance/verification
 ```
 
 ## Design Philosophy
@@ -344,8 +341,7 @@ It does **not** prescribe:
 
 - Rust 1.75+ (edition 2021)
 - Tokio async runtime
-- Optional: `PostgreSQL` (for `rbac-sql`), Redis (for `rbac-redis`)
 
 ## License
 
-[Apache 2.0](https://github.com/celestia-island/kirino/blob/main/LICENSE)
+Licensed under the [Synthetic Source License (SySL), Version 1.0](./LICENSE.txt).
