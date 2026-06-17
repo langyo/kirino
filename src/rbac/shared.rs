@@ -38,6 +38,11 @@ impl<T: ?Sized> Shared<T> {
     pub fn ptr_eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
     }
+
+    #[must_use]
+    pub fn clone_arc(&self) -> Arc<T> {
+        Arc::clone(&self.0)
+    }
 }
 
 impl<T: ?Sized> Deref for Shared<T> {
@@ -146,6 +151,8 @@ mod tests {
 
     #[test]
     fn test_equality_and_hash() {
+        use std::collections::HashSet;
+
         let s1 = Shared::new(42);
         let s2 = s1.clone();
         assert_eq!(s1, s2);
@@ -153,7 +160,6 @@ mod tests {
         let s3 = Shared::new(42);
         assert_ne!(s1, s3);
 
-        use std::collections::HashSet;
         let mut set = HashSet::new();
         set.insert(s1);
         set.insert(s2);
@@ -185,7 +191,7 @@ mod tests {
         }
         struct Hello;
         impl Greet for Hello {
-            fn greet(&self) -> &str {
+            fn greet(&self) -> &'static str {
                 "hello"
             }
         }
@@ -194,5 +200,14 @@ mod tests {
         assert_eq!(s.greet(), "hello");
         let s2 = s.clone();
         assert!(s.ptr_eq(&s2));
+    }
+
+    #[test]
+    fn test_clone_arc() {
+        let s = Shared::new(42);
+        let arc = s.clone_arc();
+        assert_eq!(*arc, 42);
+        let ptr = Arc::as_ptr(&arc);
+        assert_eq!(unsafe { *ptr }, 42);
     }
 }

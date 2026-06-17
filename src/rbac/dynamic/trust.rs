@@ -1,3 +1,4 @@
+use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, sync::Arc, time::Duration};
@@ -17,8 +18,8 @@ pub struct TrustScore {
 impl Default for TrustScore {
     fn default() -> Self {
         Self {
-            value: 0.5,
-            confidence: 0.1,
+            value: 0.0,
+            confidence: 0.0,
             evidence_count: 0,
             last_updated: Utc::now(),
             degradation_rate: 0.01,
@@ -31,7 +32,7 @@ impl TrustScore {
     pub fn new(initial_value: f64) -> Self {
         Self {
             value: initial_value.clamp(0.0, 1.0),
-            confidence: 0.1,
+            confidence: initial_value.min(0.5),
             evidence_count: 0,
             last_updated: Utc::now(),
             degradation_rate: 0.01,
@@ -54,11 +55,7 @@ impl TrustScore {
 
     #[allow(clippy::cast_precision_loss)]
     pub fn on_policy_violation(&mut self, severity: f64) {
-        let penalty = if severity > 0.8 {
-            0.3 * severity
-        } else {
-            0.1 * severity
-        };
+        let penalty = 0.1 * severity + 0.2 * (severity - 0.8).max(0.0);
         self.value = (self.value - penalty).max(0.0);
         self.evidence_count += 1;
         self.confidence = (1.0 - (1.0 / (1.0 + self.evidence_count as f64 / 100.0))).min(0.99);
@@ -69,18 +66,21 @@ impl TrustScore {
         let hours = elapsed.as_secs_f64() / 3600.0;
         let decay = self.degradation_rate * hours;
         self.value = (self.value - decay).max(0.0);
-        self.confidence = (self.confidence - decay * 0.5).max(0.1);
+        self.confidence = (self.confidence - decay * 0.5).max(0.0);
         self.last_updated = Utc::now();
     }
 }
 
 #[async_trait]
 pub trait TrustScoreStore: Send + Sync {
-    async fn get(&self, delegator_id: &str) -> anyhow::Result<Option<TrustScore>>;
-    async fn set(&self, delegator_id: &str, score: TrustScore) -> anyhow::Result<()>;
-    async fn delete(&self, delegator_id: &str) -> anyhow::Result<()>;
-    async fn sweep_stale(&self, max_age: Duration) -> anyhow::Result<Vec<String>>;
-    async fn list_ids(&self) -> anyhow::Result<Vec<String>>;
+    #[must_use]
+    async fn get(&self, delegator_id: &str) -> Result<Option<TrustScore>>;
+    async fn set(&self, delegator_id: &str, score: TrustScore) -> Result<()>;
+    async fn delete(&self, delegator_id: &str) -> Result<()>;
+    #[must_use]
+    async fn sweep_stale(&self, max_age: Duration) -> Result<Vec<String>>;
+    #[must_use]
+    async fn list_ids(&self) -> Result<Vec<String>>;
 }
 
 pub struct InMemoryTrustScoreStore {
@@ -104,25 +104,35 @@ impl Default for InMemoryTrustScoreStore {
 
 #[async_trait]
 impl TrustScoreStore for InMemoryTrustScoreStore {
-    async fn get(&self, delegator_id: &str) -> anyhow::Result<Option<TrustScore>> {
+    async fn get(&self, delegator_id: &str) -> Result<Option<TrustScore>> {
         let scores = self.scores.read().await;
         Ok(scores.get(delegator_id).cloned())
     }
 
-    async fn set(&self, delegator_id: &str, score: TrustScore) -> anyhow::Result<()> {
+    async fn set(&self, delegator_id: &str, score: TrustScore) -> Result<()> {
         let mut scores = self.scores.write().await;
         scores.insert(delegator_id.to_string(), score);
         Ok(())
     }
 
-    async fn delete(&self, delegator_id: &str) -> anyhow::Result<()> {
+    async fn delete(&self, delegator_id: &str) -> Result<()> {
         let mut scores = self.scores.write().await;
         scores.remove(delegator_id);
         Ok(())
     }
 
-    async fn sweep_stale(&self, max_age: Duration) -> anyhow::Result<Vec<String>> {
-        let cutoff = Utc::now() - chrono::Duration::from_std(max_age).unwrap_or_default();
+    async fn sweep_stale(&self, max_age: Duration) -> Result<Vec<String>> {
+        if max_age.is_zero() {
+            return Ok(Vec::new());
+        }
+        let chrono_max_age = chrono::Duration::from_std(max_age).unwrap_or_else(|e| {
+            tracing::warn!(
+                target: "kirino::dynamic::trust",
+                "max_age {max_age:?} out of range for chrono::Duration ({e}), capping to 1 year"
+            );
+            chrono::Duration::days(365)
+        });
+        let cutoff = Utc::now() - chrono_max_age;
         let mut scores = self.scores.write().await;
         let stale: Vec<String> = scores
             .iter()
@@ -135,9 +145,29 @@ impl TrustScoreStore for InMemoryTrustScoreStore {
         Ok(stale)
     }
 
-    async fn list_ids(&self) -> anyhow::Result<Vec<String>> {
+    async fn list_ids(&self) -> Result<Vec<String>> {
         let scores = self.scores.read().await;
         Ok(scores.keys().cloned().collect())
+    }
+}
+
+/// A handle that aborts the background trust decay task on drop.
+#[must_use]
+pub struct TrustDecayHandle(tokio::task::JoinHandle<()>);
+
+impl TrustDecayHandle {
+    pub fn new(handle: tokio::task::JoinHandle<()>) -> Self {
+        Self(handle)
+    }
+
+    pub fn abort(&self) {
+        self.0.abort();
+    }
+}
+
+impl Drop for TrustDecayHandle {
+    fn drop(&mut self) {
+        self.0.abort();
     }
 }
 
@@ -148,6 +178,7 @@ pub struct TrustDecayWorker {
 }
 
 impl TrustDecayWorker {
+    #[must_use]
     pub fn new(
         store: Arc<dyn TrustScoreStore>,
         interval: Duration,
@@ -160,12 +191,17 @@ impl TrustDecayWorker {
         }
     }
 
+    #[must_use]
     pub fn hourly(store: Arc<dyn TrustScoreStore>) -> Self {
-        Self::new(store, Duration::from_hours(1), Duration::from_hours(1))
+        Self::new(store, Duration::from_secs(3600), Duration::from_secs(3600))
     }
 
-    #[allow(clippy::missing_errors_doc)]
-    pub async fn run_once(&self) -> anyhow::Result<usize> {
+    /// Runs a single trust decay cycle, degrading all stored trust scores.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if listing, getting, or setting trust scores fails.
+    pub async fn run_once(&self) -> Result<usize> {
         let ids = self.store.list_ids().await?;
         let mut decayed = 0;
         for id in &ids {
@@ -207,9 +243,9 @@ impl TrustDecayWorker {
     pub fn spawn_resilient(
         store: Arc<dyn TrustScoreStore>,
         interval: Duration,
-    ) -> tokio::task::JoinHandle<()> {
-        tokio::spawn(async move {
-            let worker = Self::new(store.clone(), interval, interval);
+    ) -> TrustDecayHandle {
+        let worker = Self::new(store, interval, interval);
+        TrustDecayHandle(tokio::spawn(async move {
             let mut interval_tick = tokio::time::interval(interval);
             loop {
                 interval_tick.tick().await;
@@ -228,7 +264,7 @@ impl TrustDecayWorker {
                     }
                 }
             }
-        })
+        }))
     }
 }
 
@@ -240,8 +276,8 @@ mod tests {
     #[test]
     fn test_trust_score_default() {
         let ts = TrustScore::default();
-        assert!((ts.value - 0.5).abs() < f64::EPSILON);
-        assert!((ts.confidence - 0.1).abs() < f64::EPSILON);
+        assert!((ts.value - 0.0).abs() < 1e-10);
+        assert!((ts.confidence - 0.0).abs() < 1e-10);
         assert_eq!(ts.evidence_count, 0);
     }
 
@@ -264,7 +300,23 @@ mod tests {
     fn test_trust_score_severe_violation_cliff() {
         let mut ts = TrustScore::new(0.9);
         ts.on_policy_violation(0.9);
-        assert!(ts.value < 0.7);
+        let penalty_at_09: f64 = 0.1 * 0.9 + 0.2 * f64::max(0.9 - 0.8, 0.0);
+        assert!((ts.value - (0.9 - penalty_at_09)).abs() < 1e-10);
+        assert!(ts.value < 0.8);
+    }
+
+    #[test]
+    fn test_trust_score_penalty_smoothness() {
+        let mut ts_low = TrustScore::new(1.0);
+        ts_low.on_policy_violation(0.79);
+        let penalty_low = 0.1 * 0.79;
+
+        let mut ts_high = TrustScore::new(1.0);
+        ts_high.on_policy_violation(0.81);
+        let penalty_high = 0.1 * 0.81 + 0.2 * 0.01;
+
+        let jump = penalty_high - penalty_low;
+        assert!(jump < 0.05, "penalty should be smooth, jump was {jump}");
     }
 
     #[test]
@@ -307,7 +359,7 @@ mod tests {
         store.set(id, score.clone()).await.unwrap();
 
         let got = store.get(id).await.unwrap().unwrap();
-        assert!((got.value - 0.8).abs() < f64::EPSILON);
+        assert!((got.value - 0.8).abs() < 1e-10);
 
         store.delete(id).await.unwrap();
         assert!(store.get(id).await.unwrap().is_none());
@@ -331,6 +383,41 @@ mod tests {
         assert_eq!(swept, vec!["old-agent"]);
         assert!(store.get("old-agent").await.unwrap().is_none());
         assert!(store.get("recent-agent").await.unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_sweep_stale_none_expired() {
+        let store = InMemoryTrustScoreStore::new();
+        let score = TrustScore::new(0.8);
+        store.set("fresh-agent", score).await.unwrap();
+
+        let swept = store
+            .sweep_stale(Duration::from_secs(24 * 3600))
+            .await
+            .unwrap();
+        assert!(swept.is_empty());
+        assert!(store.get("fresh-agent").await.unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_sweep_stale_all_expired() {
+        let store = InMemoryTrustScoreStore::new();
+        let mut s1 = TrustScore::new(0.5);
+        s1.last_updated = Utc::now() - chrono::Duration::hours(72);
+        store.set("a1", s1).await.unwrap();
+
+        let mut s2 = TrustScore::new(0.3);
+        s2.last_updated = Utc::now() - chrono::Duration::hours(96);
+        store.set("a2", s2).await.unwrap();
+
+        let swept = store
+            .sweep_stale(Duration::from_secs(24 * 3600))
+            .await
+            .unwrap();
+        let mut swept = swept;
+        swept.sort();
+        assert_eq!(swept, vec!["a1", "a2"]);
+        assert!(store.list_ids().await.unwrap().is_empty());
     }
 
     #[tokio::test]

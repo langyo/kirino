@@ -7,7 +7,8 @@ use yuuka::derive_enum;
 
 use super::credential::Credential;
 
-pub type MACAddress = [u8; 6];
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct MACAddress(pub String);
 
 derive_enum!(
     #[derive(PartialEq, Serialize, Deserialize)]
@@ -20,7 +21,7 @@ derive_enum!(
             Permanent {
                 password: String,
             },
-            Application{
+            Application {
                 password: String,
                 ref_services: Vec<Uuid>,
             }
@@ -58,7 +59,7 @@ derive_enum!(
             expires_at: DateTime<Utc>,
             provider_captcha: Uuid,
         },
-        Biological  {
+        Biometric {
             session: Uuid,
             template: Uuid,
             provider_ai: Uuid,

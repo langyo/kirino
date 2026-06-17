@@ -3,6 +3,10 @@ use std::collections::HashSet;
 
 use super::metrics::ActionCategory;
 
+const DOMAIN_RESOURCE_MISMATCH_WEIGHT: f64 = 0.3;
+const ADJACENT_DOMAIN_WEIGHT: f64 = 0.15;
+const OUT_OF_DOMAIN_WEIGHT: f64 = 0.6;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskDomain {
     pub domain_name: String,
@@ -31,9 +35,32 @@ impl TaskDomain {
         if self.allowed_resource_prefixes.is_empty() {
             return true;
         }
+        let normalized = Self::normalize_path(path);
         self.allowed_resource_prefixes
             .iter()
-            .any(|prefix| path.starts_with(prefix))
+            .any(|prefix| normalized.starts_with(prefix))
+    }
+
+    fn normalize_path(path: &str) -> String {
+        let mut components = Vec::new();
+        for part in path.split('/') {
+            match part {
+                "" | "." => {}
+                ".." => {
+                    components.pop();
+                }
+                _ => components.push(part),
+            }
+        }
+        if components.is_empty() {
+            return "/".to_string();
+        }
+        let mut result = String::with_capacity(path.len());
+        for comp in &components {
+            result.push('/');
+            result.push_str(comp);
+        }
+        result
     }
 }
 
@@ -66,11 +93,19 @@ impl DomainScope {
             .current_task_domain
             .allowed_action_categories
             .contains(category);
-        let resource_ok =
-            resource_path.is_none_or(|p| self.current_task_domain.is_resource_allowed(p));
+        let resource_ok = match resource_path {
+            Some(p) => self.current_task_domain.is_resource_allowed(p),
+            None => true,
+        };
 
         if in_domain && resource_ok {
             return DomainMatch::InDomain;
+        }
+
+        if in_domain && !resource_ok {
+            return DomainMatch::DomainResourceMismatch {
+                excess_weight: DOMAIN_RESOURCE_MISMATCH_WEIGHT,
+            };
         }
 
         let in_adjacent = self
@@ -79,12 +114,28 @@ impl DomainScope {
             .any(|d| d.allowed_action_categories.contains(category));
 
         if in_adjacent {
+            let adjacent_resource_ok = self.adjacent_domains.iter().any(|d| {
+                d.allowed_action_categories.contains(category)
+                    && match resource_path {
+                        Some(p) => d.is_resource_allowed(p),
+                        None => true,
+                    }
+            });
+
+            if !adjacent_resource_ok {
+                return DomainMatch::DomainResourceMismatch {
+                    excess_weight: ADJACENT_DOMAIN_WEIGHT + DOMAIN_RESOURCE_MISMATCH_WEIGHT,
+                };
+            }
+
             return DomainMatch::Adjacent {
-                excess_weight: 0.15,
+                excess_weight: ADJACENT_DOMAIN_WEIGHT,
             };
         }
 
-        DomainMatch::OutOfDomain { excess_weight: 0.6 }
+        DomainMatch::OutOfDomain {
+            excess_weight: OUT_OF_DOMAIN_WEIGHT,
+        }
     }
 }
 
@@ -92,6 +143,7 @@ impl DomainScope {
 pub enum DomainMatch {
     InDomain,
     Adjacent { excess_weight: f64 },
+    DomainResourceMismatch { excess_weight: f64 },
     OutOfDomain { excess_weight: f64 },
 }
 
@@ -100,9 +152,9 @@ impl DomainMatch {
     pub fn excess_weight(&self) -> f64 {
         match self {
             Self::InDomain => 0.0,
-            Self::Adjacent { excess_weight } | Self::OutOfDomain { excess_weight } => {
-                *excess_weight
-            }
+            Self::Adjacent { excess_weight }
+            | Self::DomainResourceMismatch { excess_weight }
+            | Self::OutOfDomain { excess_weight } => *excess_weight,
         }
     }
 }
@@ -179,5 +231,41 @@ mod tests {
                 .excess_weight(),
             0.6
         );
+    }
+
+    #[test]
+    fn test_adjacent_domain_resource_mismatch() {
+        let adjacent = TaskDomain::new(
+            "monitoring",
+            [ActionCategory::ReadOnly].into(),
+            vec!["/metrics/".to_string()],
+            0.3,
+        );
+        let scope = DomainScope::with_adjacent(
+            TaskDomain::new("core", [ActionCategory::StateWrite].into(), vec![], 0.5),
+            vec![adjacent],
+        );
+        let m = scope.evaluate(&ActionCategory::ReadOnly, Some("/etc/passwd"));
+        assert!(
+            matches!(m, DomainMatch::DomainResourceMismatch { .. }),
+            "adjacent category but disallowed resource should be mismatch"
+        );
+        assert!(m.excess_weight() > ADJACENT_DOMAIN_WEIGHT);
+    }
+
+    #[test]
+    fn test_adjacent_domain_resource_allowed() {
+        let adjacent = TaskDomain::new(
+            "monitoring",
+            [ActionCategory::ReadOnly].into(),
+            vec!["/metrics/".to_string()],
+            0.3,
+        );
+        let scope = DomainScope::with_adjacent(
+            TaskDomain::new("core", [ActionCategory::StateWrite].into(), vec![], 0.5),
+            vec![adjacent],
+        );
+        let m = scope.evaluate(&ActionCategory::ReadOnly, Some("/metrics/cpu"));
+        assert!(matches!(m, DomainMatch::Adjacent { .. }));
     }
 }
