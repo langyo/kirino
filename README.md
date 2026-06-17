@@ -17,10 +17,7 @@
   <a href="https://crates.io/crates/kirino">
     <img src="https://img.shields.io/crates/v/kirino" alt="Crates.io Version" />
   </a>
-  <a href="https://crates.io/crates/kirino">
-    <img src="https://img.shields.io/crates/l/kirino" alt="License" />
-  </a>
-</div>
+  [[![License: SySL](https://img.shields.io/badge/license-SySL%201.0-blue)](./LICENSE.txt)](./LICENSE.txt)</div>
 
 <div align="center">
   <h3>
@@ -347,4 +344,4 @@ It does **not** prescribe:
 
 ## License
 
-[Apache 2.0](https://github.com/celestia-island/kirino/blob/main/LICENSE)
+Licensed under the [Synthetic Source License (SySL), Version 1.0](./LICENSE.txt).
