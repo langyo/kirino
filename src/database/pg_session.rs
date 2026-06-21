@@ -37,7 +37,7 @@ impl PersistentSessionStore for PgSessionStore {
                 row.created_at.to_rfc3339().into(),
             ],
         );
-        self.conn.execute(stmt).await?;
+        self.conn.execute_raw(stmt).await?;
         Ok(())
     }
 
@@ -47,7 +47,7 @@ impl PersistentSessionStore for PgSessionStore {
             "SELECT id, subject_id, active_roles, context, expires_at, created_at FROM rbac_sessions WHERE id = $1",
             [id.to_string().into()],
         );
-        if let Some(row) = self.conn.query_one(stmt).await? {
+        if let Some(row) = self.conn.query_one_raw(stmt).await? {
             let active_roles: Vec<String> = {
                 let raw: String = row.try_get("rbac_sessions", "active_roles")?;
                 serde_json::from_str(&raw).map_err(|e| {
@@ -93,7 +93,7 @@ impl PersistentSessionStore for PgSessionStore {
             "DELETE FROM rbac_sessions WHERE id = $1",
             [id.to_string().into()],
         );
-        self.conn.execute(stmt).await?;
+        self.conn.execute_raw(stmt).await?;
         Ok(())
     }
 
@@ -104,7 +104,7 @@ impl PersistentSessionStore for PgSessionStore {
             "UPDATE rbac_sessions SET active_roles = $1::jsonb, updated_at = NOW() WHERE id = $2",
             [roles_json.into(), id.to_string().into()],
         );
-        let result = self.conn.execute(stmt).await?;
+        let result = self.conn.execute_raw(stmt).await?;
         if result.rows_affected() == 0 {
             return Err(anyhow::anyhow!("session {} not found", id));
         }
@@ -116,7 +116,7 @@ impl PersistentSessionStore for PgSessionStore {
             self.conn.get_database_backend(),
             "DELETE FROM rbac_sessions WHERE expires_at < NOW()",
         );
-        let result = self.conn.execute(stmt).await?;
+        let result = self.conn.execute_raw(stmt).await?;
         Ok(result.rows_affected() as usize)
     }
 }
