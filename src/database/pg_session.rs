@@ -1,7 +1,8 @@
 use anyhow::Result;
+use uuid::Uuid;
+
 use async_trait::async_trait;
 use sea_orm::{ConnectionTrait, DatabaseConnection, Statement};
-use uuid::Uuid;
 
 use crate::rbac::store::persistence::{PersistentSessionStore, SessionRow};
 
@@ -54,19 +55,18 @@ impl PersistentSessionStore for PgSessionStore {
                     anyhow::anyhow!("corrupted active_roles JSON for session {}: {e}", id)
                 })?
             };
-            let context: Option<serde_json::Value> = match row
-                .try_get::<Option<String>>("rbac_sessions", "context")
-            {
-                Ok(Some(s)) => Some(serde_json::from_str(&s).map_err(|e| {
-                    anyhow::anyhow!("corrupted context JSON for session {}: {e}", id)
-                })?),
-                Ok(None) => None,
-                Err(e) => {
-                    tracing::warn!(target: "kirino::database::pg_session",
+            let context: Option<serde_json::Value> =
+                match row.try_get::<Option<String>>("rbac_sessions", "context") {
+                    Ok(Some(s)) => Some(serde_json::from_str(&s).map_err(|e| {
+                        anyhow::anyhow!("corrupted context JSON for session {}: {e}", id)
+                    })?),
+                    Ok(None) => None,
+                    Err(e) => {
+                        tracing::warn!(target: "kirino::database::pg_session",
                         "failed to read context for session {}: {e}", id);
-                    None
-                }
-            };
+                        None
+                    }
+                };
             let expires_at_str = row.try_get::<String>("rbac_sessions", "expires_at")?;
             let expires_at =
                 chrono::DateTime::parse_from_rfc3339(&expires_at_str)?.with_timezone(&chrono::Utc);
