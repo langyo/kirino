@@ -46,8 +46,9 @@ clippy:
 
 # Format all code
 fmt:
-    @echo "Formatting all code..."
+    cargo clippy --all-targets --all-features -- -D warnings
     cargo fmt --all
+    python3 scripts/enforce_use_groups.py
 
 # Check formatting without modifying files
 fmt-check:
