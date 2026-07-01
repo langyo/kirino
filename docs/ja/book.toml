@@ -1,0 +1,17 @@
+[book]
+title = "Kirino ドキュメント"
+description = "完全な RBAC サポートを備えた、カスタマイズ可能なゼロトラスト認証フレームワーク"
+authors = ["celestia-island"]
+language = "ja"
+src = "."
+
+[build]
+build-dir = "../../target/docs/ja"
+
+[output.html]
+default-theme = "light"
+preferred-dark-theme = "ayu"
+git-repository-url = "https://github.com/celestia-island/kirino"
+edit-url-template = "https://github.com/celestia-island/kirino/edit/dev/docs/ja/{path}"
+additional-js = ["../theme/lang-switcher.js"]
+additional-css = ["../theme/lang-switcher.css"]
