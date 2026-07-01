@@ -95,7 +95,7 @@ graph TD
 
 ```
 SsdPolicy { roles: {"billing", "auditor"}, cardinality: 2 }
-→ A user cannot hold both "billing" and "auditor" simultaneously.
+→ لا يمكن للمستخدم أن يحمل كلًا من "billing" و"auditor" في الوقت نفسه.
 ```
 
 #### الفصل الديناميكي للمهام (DSD)
@@ -104,7 +104,7 @@ SsdPolicy { roles: {"billing", "auditor"}, cardinality: 2 }
 
 ```
 DsdPolicy { roles: {"author", "reviewer"}, cardinality: 2 }
-→ A user can be both author and reviewer, but only activate one per session.
+→ يمكن للمستخدم أن يكون مؤلفًا ومراجعًا في آنٍ واحد، لكنه يفعّل دورًا واحدًا فقط لكل جلسة.
 ```
 
 #### قيد العدد (Cardinality Constraint)
@@ -113,7 +113,7 @@ DsdPolicy { roles: {"author", "reviewer"}, cardinality: 2 }
 
 ```
 CardinalityConstraint { role: "admin", max: 3 }
-→ At most 3 users can be administrators.
+→ يمكن لثلاثة مستخدمين كحد أقصى أن يكونوا مسؤولين.
 ```
 
 #### قيد المتطلّب السابق (Prerequisite Constraint)
@@ -122,7 +122,7 @@ CardinalityConstraint { role: "admin", max: 3 }
 
 ```
 PrerequisiteConstraint { role: "operator", requires: "viewer" }
-→ Only existing viewers can be promoted to operator.
+→ يمكن فقط للمشاهدين الحاليين الترقية إلى مشغّل.
 ```
 
 #### القيد الزمني (Temporal Constraint)
@@ -131,7 +131,7 @@ PrerequisiteConstraint { role: "operator", requires: "viewer" }
 
 ```
 TemporalConstraint { role: "temp-admin", valid_from: ..., valid_until: ... }
-→ Auto-expires; automatically revoked after valid_until.
+→ ينتهي تلقائيًا؛ يُسحب تلقائيًا بعد valid_until.
 ```
 
 ## تدفّق القرار
