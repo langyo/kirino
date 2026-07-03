@@ -1,8 +1,10 @@
 # kirino — Issues & Action Plan
 
-Generated 2026-06-30 from deep code audit.
+Generated 2026-06-30 from deep code audit. Last updated 2026-07-04.
 
 kirino is the zero-trust authentication & RBAC framework (v0.5.0, SySL-1.0). Implements RBAC0/1/2 per ANSI INCITS 359-2004 with dynamic authorization.
+
+**Status legend**: ✅ done in-tree · ⏳ deferred / external · 🔴 open
 
 ## Critical
 
@@ -21,25 +23,43 @@ kirino is the zero-trust authentication & RBAC framework (v0.5.0, SySL-1.0). Imp
 ### 2. sea-orm dependency is release candidate
 - `sea-orm = "^2.0.0-rc"` for PostgreSQL-backed stores
 - **Fix**: Pin to exact RC version. Monitor for 2.0 stable release.
+- **Status**: ✅ done — pinned to `=2.0.0-rc.41` (commit `b3c9354`). Re-pin if a
+  caret-normalization pass reintroduces `^2.0.0-rc`. Still monitor for 2.0 stable.
 
 ### 3. yuuka dependency is obscure
 - `yuuka = "^0.5"` — a proc-macro crate by the same author, not widely used
 - If yuuka breaks or is abandoned, kirino's build breaks
 - **Fix**: Consider vendoring the yuuka macros that kirino uses, or ensure yuuka has its own stability guarantees.
+- **Status**: ✅ mitigated — yuuka is now a path dependency on the sibling repo
+  (`../yuuka`, commit `07abd4a`), so the build no longer depends on crates.io for
+  it. A formal "vendor the macros" (copy sources in-tree) is still possible but
+  not required while the sibling repo tracks kirino.
 
 ## Medium
 
 ### 4. No security audit
 - Despite being a security-critical library, no documented external security review
 - **Fix**: Document the threat model. Consider commissioning a security audit before production deployment.
+- **Status**: ⏳ partially done — the threat model exists (`docs/THREAT_MODEL.md`)
+  and a `SECURITY.md` reporting policy was added (commit `4cdb3f5`), which
+  **honestly states that no third-party audit has been performed** (per
+  THREAT_MODEL.md §5). The audit itself remains 🔴 open and recommended before
+  production deployment.
 
 ### 5. No performance benchmarks
 - RBAC engine with TTL cache, dynamic auth with 5-dimension risk scoring — no benchmarks exist
 - **Fix**: Add criterion benchmarks for: permission check hot path, hierarchical role resolution (deep chains), constraint validation, dynamic auth scoring.
+- **Status**: 🔴 open. Note: a `benches/rbac` criterion target already exists
+  (added in commit `d0208ce`); the hot-path permission check is covered. The
+  remaining gaps are hierarchical-resolution (deep chains), constraint
+  validation, and dynamic-auth scoring benchmarks.
 
 ### 6. No integration tests with real PostgreSQL
 - InMemory stores are tested; PostgreSQL stores (`rbac-pg-session` feature) are not
 - **Fix**: Add docker-compose + integration tests for PG-backed stores.
+- **Status**: ✅ done — `docker-compose.yml`, a CI `pg-integration` job, and six
+  `#[ignore]`'d integration tests in `src/database/pg_session.rs` were added
+  (commit `2d71858`). The default test suite is unaffected.
 
 ## Strengths (for reference)
 - Full RBAC0/1/2 implementation (ANSI INCITS 359-2004 compliant)
