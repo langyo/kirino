@@ -49,10 +49,19 @@ kirino is the zero-trust authentication & RBAC framework (v0.5.0, SySL-1.0). Imp
 ### 5. No performance benchmarks
 - RBAC engine with TTL cache, dynamic auth with 5-dimension risk scoring — no benchmarks exist
 - **Fix**: Add criterion benchmarks for: permission check hot path, hierarchical role resolution (deep chains), constraint validation, dynamic auth scoring.
-- **Status**: 🔴 open. Note: a `benches/rbac` criterion target already exists
-  (added in commit `d0208ce`); the hot-path permission check is covered. The
-  remaining gaps are hierarchical-resolution (deep chains), constraint
-  validation, and dynamic-auth scoring benchmarks.
+- **Status**: ✅ done — all four criterion benchmark groups now exist in
+  `benches/rbac.rs`, each gated behind its providing feature so the file
+  compiles under any feature combination:
+  `permission_check` (default), `hierarchical_resolution` (`rbac-hierarchy`,
+  depth-10 inheritance chain), `constraint_validation` (`rbac-constraints`,
+  exercising all five policy kinds: SSD, DSD, prerequisite, cardinality, and
+  temporal/time-window), and `dynamic_auth` (`rbac-dynamic`, 5-dimension risk
+  score + full `authorize()` verdict). Verified with
+  `cargo bench --no-run`, `cargo check --benches`, and
+  `cargo clippy --benches -- -D warnings` under
+  `--features rbac-hierarchy,rbac-constraints,rbac-dynamic` (the `rbac-pg-session`
+  feature is excluded from the bench gate because its `sea-orm` dep requires a
+  newer rustc than the in-tree toolchain).
 
 ### 6. No integration tests with real PostgreSQL
 - InMemory stores are tested; PostgreSQL stores (`rbac-pg-session` feature) are not

@@ -196,14 +196,16 @@ fn bench_hierarchical_resolution(c: &mut Criterion) {
     group.finish();
 }
 
-/// Constraint validation over a store carrying SSD, prerequisite, and
-/// cardinality policies. Exercises both a passing assignment and one that
-/// violates the SSD separation-of-duty policy.
+/// Constraint validation over a store carrying every supported policy kind:
+/// SSD, DSD, prerequisite, cardinality, and temporal (time-window). The store
+/// is seeded so that the `validate_assignment` hot path actually walks each
+/// policy family, and individual `validate_*` entry points are exercised
+/// directly.
 #[cfg(feature = "rbac-constraints")]
 fn bench_constraint_validation(c: &mut Criterion) {
     use kirino::rbac::constraints::{
-        CardinalityConstraint, ConstraintStore, ConstraintValidator, InMemoryConstraintStore,
-        PrerequisiteConstraint, SsdPolicy,
+        CardinalityConstraint, ConstraintStore, ConstraintValidator, DsdPolicy,
+        InMemoryConstraintStore, PrerequisiteConstraint, SsdPolicy, TemporalConstraint,
     };
 
     let rt = runtime();
@@ -215,12 +217,32 @@ fn bench_constraint_validation(c: &mut Criterion) {
         2,
     )))
     .unwrap();
+    rt.block_on(store.add_dsd_policy(DsdPolicy::new(
+        "operator_auditor_session",
+        ["operator".to_string(), "auditor".to_string()].into(),
+        2,
+    )))
+    .unwrap();
     rt.block_on(
         store.add_prerequisite_constraint(PrerequisiteConstraint::new("admin", "operator")),
     )
     .unwrap();
     rt.block_on(store.add_cardinality_constraint(CardinalityConstraint::new("admin", 5)))
         .unwrap();
+    // Valid (current-time) window so the temporal validator does real work
+    // rather than short-circuiting on an empty constraint list.
+    let now = chrono::Utc::now();
+    rt.block_on(
+        store.add_temporal_constraint(
+            TemporalConstraint::new(
+                "admin",
+                now - chrono::Duration::hours(1),
+                now + chrono::Duration::hours(1),
+            )
+            .unwrap(),
+        ),
+    )
+    .unwrap();
 
     let validator = ConstraintValidator::new(store);
 
@@ -244,6 +266,16 @@ fn bench_constraint_validation(c: &mut Criterion) {
                 black_box("admin"),
                 black_box(0_usize),
             )))
+        });
+    });
+    group.bench_function("validate_temporal", |b| {
+        b.iter(|| black_box(rt.block_on(validator.validate_temporal(black_box("admin")))));
+    });
+    group.bench_function("validate_dsd", |b| {
+        b.iter(|| {
+            black_box(rt.block_on(
+                validator.validate_dsd(black_box(&["operator".to_string()]), black_box("viewer")),
+            ))
         });
     });
     group.finish();
