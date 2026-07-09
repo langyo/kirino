@@ -3,7 +3,7 @@
 This document describes the security architecture of **kirino** (v0.5.0), a
 zero-trust authentication and RBAC framework. It is intended for security
 reviewers, integrators, and downstream maintainers. It is **not** a complete
-formal audit — see [§ External Audit](#external-audit).
+formal audit — see [§ External Audit](#5-external-audit).
 
 kirino is security-critical infrastructure: a single incorrect authorization
 decision is a privilege-escalation vulnerability. Every design choice below
