@@ -1,9 +1,16 @@
 use anyhow::{anyhow, Result};
 use std::sync::atomic::{AtomicU64, Ordering};
+<<<<<<< HEAD
 use zeroize::Zeroizing;
 
 use hmac::{Hmac, Mac};
 use sha1::Sha1;
+=======
+
+use hmac::{Hmac, Mac};
+use sha1::Sha1;
+use zeroize::Zeroizing;
+>>>>>>> origin/dev
 
 use crate::utils::constant_time_eq;
 
@@ -164,8 +171,28 @@ mod tests {
             format_code(code, 6)
         };
 
+<<<<<<< HEAD
         if current != prev_code {
             assert!(totp.verify(&prev_code).unwrap());
+=======
+        // TOTP codes for consecutive 30s windows almost always differ, but in
+        // the rare case where HOTP wraps to the same 6-digit string we cannot
+        // distinguish "previous step accepted" from "current step accepted".
+        // Handle that edge case explicitly instead of silently skipping the
+        // assertion.
+        if current == prev_code {
+            // Verify the verifier still accepts its own current code, so the
+            // test exercises *something* even in the wrap-around case.
+            assert!(
+                totp.verify(&current).unwrap(),
+                "TOTP must always accept its own freshly-generated current code"
+            );
+        } else {
+            assert!(
+                totp.verify(&prev_code).unwrap(),
+                "TOTP must accept the previous time-step code (window tolerance ≥ 1)"
+            );
+>>>>>>> origin/dev
         }
     }
 

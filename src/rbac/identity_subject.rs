@@ -1,9 +1,17 @@
+<<<<<<< HEAD
 use std::hash::{Hash, Hasher};
 
 use chrono::Utc;
 
 use crate::{models::identity::Identity, rbac::traits::Subject};
 use anyhow::Result;
+=======
+use anyhow::Result;
+use chrono::Utc;
+use std::hash::{Hash, Hasher};
+
+use crate::{models::identity::Identity, rbac::traits::Subject};
+>>>>>>> origin/dev
 
 pub trait Delegatable: Subject {
     /// Check if this subject can delegate to the given subject.
