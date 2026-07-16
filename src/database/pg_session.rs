@@ -1,14 +1,20 @@
 use anyhow::Result;
 <<<<<<< HEAD
+<<<<<<< HEAD
 use async_trait::async_trait;
 use sea_orm::{ConnectionTrait, DatabaseConnection, Statement};
 use uuid::Uuid;
 =======
+=======
+>>>>>>> dev
 use uuid::Uuid;
 
 use async_trait::async_trait;
 use sea_orm::{ConnectionTrait, DatabaseConnection, Statement};
+<<<<<<< HEAD
 >>>>>>> origin/dev
+=======
+>>>>>>> dev
 
 use crate::rbac::store::persistence::{PersistentSessionStore, SessionRow};
 
@@ -45,10 +51,14 @@ impl PersistentSessionStore for PgSessionStore {
             ],
         );
 <<<<<<< HEAD
+<<<<<<< HEAD
         self.conn.execute(stmt).await?;
 =======
         self.conn.execute_raw(stmt).await?;
 >>>>>>> origin/dev
+=======
+        self.conn.execute_raw(stmt).await?;
+>>>>>>> dev
         Ok(())
     }
 
@@ -59,16 +69,21 @@ impl PersistentSessionStore for PgSessionStore {
             [id.to_string().into()],
         );
 <<<<<<< HEAD
+<<<<<<< HEAD
         if let Some(row) = self.conn.query_one(stmt).await? {
 =======
         if let Some(row) = self.conn.query_one_raw(stmt).await? {
 >>>>>>> origin/dev
+=======
+        if let Some(row) = self.conn.query_one_raw(stmt).await? {
+>>>>>>> dev
             let active_roles: Vec<String> = {
                 let raw: String = row.try_get("rbac_sessions", "active_roles")?;
                 serde_json::from_str(&raw).map_err(|e| {
                     anyhow::anyhow!("corrupted active_roles JSON for session {}: {e}", id)
                 })?
             };
+<<<<<<< HEAD
 <<<<<<< HEAD
             let context: Option<serde_json::Value> = match row
                 .try_get::<Option<String>>("rbac_sessions", "context")
@@ -84,6 +99,8 @@ impl PersistentSessionStore for PgSessionStore {
                 }
             };
 =======
+=======
+>>>>>>> dev
             let context: Option<serde_json::Value> =
                 match row.try_get::<Option<String>>("rbac_sessions", "context") {
                     Ok(Some(s)) => Some(serde_json::from_str(&s).map_err(|e| {
@@ -96,7 +113,10 @@ impl PersistentSessionStore for PgSessionStore {
                         None
                     }
                 };
+<<<<<<< HEAD
 >>>>>>> origin/dev
+=======
+>>>>>>> dev
             let expires_at_str = row.try_get::<String>("rbac_sessions", "expires_at")?;
             let expires_at =
                 chrono::DateTime::parse_from_rfc3339(&expires_at_str)?.with_timezone(&chrono::Utc);
@@ -124,10 +144,14 @@ impl PersistentSessionStore for PgSessionStore {
             [id.to_string().into()],
         );
 <<<<<<< HEAD
+<<<<<<< HEAD
         self.conn.execute(stmt).await?;
 =======
         self.conn.execute_raw(stmt).await?;
 >>>>>>> origin/dev
+=======
+        self.conn.execute_raw(stmt).await?;
+>>>>>>> dev
         Ok(())
     }
 
@@ -139,10 +163,14 @@ impl PersistentSessionStore for PgSessionStore {
             [roles_json.into(), id.to_string().into()],
         );
 <<<<<<< HEAD
+<<<<<<< HEAD
         let result = self.conn.execute(stmt).await?;
 =======
         let result = self.conn.execute_raw(stmt).await?;
 >>>>>>> origin/dev
+=======
+        let result = self.conn.execute_raw(stmt).await?;
+>>>>>>> dev
         if result.rows_affected() == 0 {
             return Err(anyhow::anyhow!("session {} not found", id));
         }
@@ -155,11 +183,14 @@ impl PersistentSessionStore for PgSessionStore {
             "DELETE FROM rbac_sessions WHERE expires_at < NOW()",
         );
 <<<<<<< HEAD
+<<<<<<< HEAD
         let result = self.conn.execute(stmt).await?;
         Ok(result.rows_affected() as usize)
     }
 }
 =======
+=======
+>>>>>>> dev
         let result = self.conn.execute_raw(stmt).await?;
         Ok(result.rows_affected() as usize)
     }
@@ -374,4 +405,7 @@ mod tests {
         assert!(store.load_session(expired.id).await.unwrap().is_none());
     }
 }
+<<<<<<< HEAD
 >>>>>>> origin/dev
+=======
+>>>>>>> dev

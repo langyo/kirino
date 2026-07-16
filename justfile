@@ -14,11 +14,14 @@
 #   just ci              - Run all CI checks
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 set windows-shell := ["pwsh.exe", "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $PSDefaultParameterValues['*:Encoding'] = 'utf8';"]
 
 python := if os_family() == "windows" { "python" } else { "python3" }
 
 =======
+=======
+>>>>>>> dev
 set shell := ["bash", "-c"]
 set windows-shell := ["bash.exe", "-c"]
 set unstable
@@ -54,7 +57,10 @@ fetch URL='':
 python := if os_family() == "windows" { "python" } else { "python3" }
 
 
+<<<<<<< HEAD
 >>>>>>> origin/dev
+=======
+>>>>>>> dev
 default:
     @just --list
 
@@ -62,6 +68,7 @@ default:
 # Build tasks
 # ============================================================================
 
+<<<<<<< HEAD
 <<<<<<< HEAD
 # Build everything (Debug mode)
 build-dev:
@@ -77,6 +84,11 @@ build:
 build *FLAGS='':
     just _build ":" "cargo build --all" "cargo build --release --all" {{FLAGS}}
 >>>>>>> origin/dev
+=======
+# Build all crates. Release by default; `--dev` for debug, `--clean` to clean first.
+build *FLAGS='':
+    just _build ":" "cargo build --all" "cargo build --release --all" {{FLAGS}}
+>>>>>>> dev
 
 # ============================================================================
 # Code quality checks
@@ -95,12 +107,17 @@ clippy:
 # Format all code
 fmt:
 <<<<<<< HEAD
+<<<<<<< HEAD
     @echo "Formatting all code..."
     cargo fmt --all
 =======
     cargo fmt --all
     python3 scripts/enforce_use_groups.py
 >>>>>>> origin/dev
+=======
+    cargo fmt --all
+    python3 scripts/enforce_use_groups.py
+>>>>>>> dev
 
 # Check formatting without modifying files
 fmt-check:

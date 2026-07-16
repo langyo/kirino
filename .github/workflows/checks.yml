@@ -23,19 +23,27 @@ jobs:
 
     steps:
 <<<<<<< HEAD
+<<<<<<< HEAD
       - uses: actions/checkout@v5
 =======
       - uses: actions/checkout@v4
 >>>>>>> origin/dev
+=======
+      - uses: actions/checkout@v4
+>>>>>>> dev
         with:
           fetch-depth: 0
 
       - name: Install Rust toolchain
 <<<<<<< HEAD
+<<<<<<< HEAD
         uses: dtolnay/rust-toolchain@master
 =======
         uses: dtolnay/rust-toolchain@stable
 >>>>>>> origin/dev
+=======
+        uses: dtolnay/rust-toolchain@stable
+>>>>>>> dev
         with:
           toolchain: ${{ matrix.rust }}
           components: rustfmt, clippy
@@ -58,10 +66,14 @@ jobs:
 
       - name: Clippy lints
 <<<<<<< HEAD
+<<<<<<< HEAD
         run: cargo clippy --all-targets -- -D warnings
 =======
         run: cargo clippy --all-targets --all-features -- -D warnings
 >>>>>>> origin/dev
+=======
+        run: cargo clippy --all-targets --all-features -- -D warnings
+>>>>>>> dev
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -83,7 +95,10 @@ jobs:
           rustup install 1.75.0 --profile minimal
           cargo +1.75.0 check --all-features
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> dev
 
   pg-integration:
     name: PostgreSQL integration tests
@@ -141,4 +156,7 @@ jobs:
 
       - name: Run PostgreSQL integration tests
         run: cargo test --lib --features rbac-pg-session -- --ignored pg_session
+<<<<<<< HEAD
 >>>>>>> origin/dev
+=======
+>>>>>>> dev

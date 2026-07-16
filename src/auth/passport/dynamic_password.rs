@@ -1,16 +1,22 @@
 use anyhow::{anyhow, Result};
 use std::sync::atomic::{AtomicU64, Ordering};
 <<<<<<< HEAD
+<<<<<<< HEAD
 use zeroize::Zeroizing;
 
 use hmac::{Hmac, Mac};
 use sha1::Sha1;
 =======
+=======
+>>>>>>> dev
 
 use hmac::{Hmac, Mac};
 use sha1::Sha1;
 use zeroize::Zeroizing;
+<<<<<<< HEAD
 >>>>>>> origin/dev
+=======
+>>>>>>> dev
 
 use crate::utils::constant_time_eq;
 
@@ -172,9 +178,12 @@ mod tests {
         };
 
 <<<<<<< HEAD
+<<<<<<< HEAD
         if current != prev_code {
             assert!(totp.verify(&prev_code).unwrap());
 =======
+=======
+>>>>>>> dev
         // TOTP codes for consecutive 30s windows almost always differ, but in
         // the rare case where HOTP wraps to the same 6-digit string we cannot
         // distinguish "previous step accepted" from "current step accepted".
@@ -192,7 +201,10 @@ mod tests {
                 totp.verify(&prev_code).unwrap(),
                 "TOTP must accept the previous time-step code (window tolerance ≥ 1)"
             );
+<<<<<<< HEAD
 >>>>>>> origin/dev
+=======
+>>>>>>> dev
         }
     }
 

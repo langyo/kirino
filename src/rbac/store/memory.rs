@@ -275,8 +275,11 @@ mod tests {
         let store = InMemoryAssignmentStore::<TestSubject, TestPerm>::new();
         let subj = TestSubject("ghost".to_string());
 <<<<<<< HEAD
+<<<<<<< HEAD
         store.revoke_role(&subj, "admin").await.unwrap();
 =======
+=======
+>>>>>>> dev
         // Revoking a role from a subject that was never assigned anything
         // must succeed (idempotent) AND leave the store visibly empty for
         // that subject — proving the no-op contract, not just the absence of
@@ -292,7 +295,10 @@ mod tests {
             !admins.iter().any(|s| s == "ghost"),
             "revoking a nonexistent subject must not register that subject under any role"
         );
+<<<<<<< HEAD
 >>>>>>> origin/dev
+=======
+>>>>>>> dev
     }
 
     #[tokio::test]
